@@ -15,7 +15,7 @@ Commands (all slash commands):
     /timer start name hours          - start a custom countdown (guild boss etc.)
     /timer list                      - list running custom timers
     /timer cancel name               - cancel a running custom timer
-    /roles set target role           - ping `role` 15m AND 2m before Guild Boss/JMG/Morpheus/Rangora starts
+    /roles set target role           - ping `role` 15m AND 2m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy starts
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
     /roles message                   - post a permanent self-assign button message for the 4 roles
@@ -232,7 +232,8 @@ def gd(guild_id):
 # /timer start when someone types one of these names. JMG is matched against the
 # schedule instead, since it's not a custom timer.
 PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
-                ("morpheus", "Morpheus"), ("rangora", "Rangora")]
+                ("morpheus", "Morpheus"), ("rangora", "Rangora"),
+                ("skyfin", "Skyfin"), ("halcy", "Halcy")]
 PING_LABELS = dict(PING_TARGETS)
 NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS if key != "jmg"}
 
@@ -329,7 +330,8 @@ async def _reply_dismiss(interaction: discord.Interaction, content: str = None, 
 # One-click preset timers shown as buttons under the board (mirrors the desktop
 # widget's _TIMER_PRESETS). Fixed custom_ids + timeout=None so the buttons keep
 # working after a bot restart, as long as the view is re-registered in setup_hook.
-TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0)]
+TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0),
+                  ("Skyfin", 5 / 60), ("Halcy", 5 / 60)]
 
 
 class PresetView(discord.ui.View):
@@ -370,6 +372,16 @@ class PresetView(discord.ui.View):
                         custom_id="preset_rangora")
     async def add_rangora(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._start(interaction, "Rangora", 12.0)
+
+    @discord.ui.button(label="+ Skyfin", style=discord.ButtonStyle.secondary,
+                        custom_id="preset_skyfin")
+    async def add_skyfin(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start(interaction, "Skyfin", 5 / 60)
+
+    @discord.ui.button(label="+ Halcy", style=discord.ButtonStyle.secondary,
+                        custom_id="preset_halcy")
+    async def add_halcy(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start(interaction, "Halcy", 5 / 60)
 
 
 def build_role_embed():
@@ -433,6 +445,14 @@ class RoleButtonView(discord.ui.View):
     @discord.ui.button(label="Guild Boss", style=discord.ButtonStyle.secondary, custom_id="role_guild_boss")
     async def guild_boss_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle(interaction, "guild_boss")
+
+    @discord.ui.button(label="Skyfin", style=discord.ButtonStyle.secondary, custom_id="role_skyfin")
+    async def skyfin_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "skyfin")
+
+    @discord.ui.button(label="Halcy", style=discord.ButtonStyle.secondary, custom_id="role_halcy")
+    async def halcy_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "halcy")
 
 
 # ── Bot ──────────────────────────────────────────────────────────────────────────
