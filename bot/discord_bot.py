@@ -335,7 +335,16 @@ class PresetView(discord.ui.View):
 
     async def _start(self, interaction, name, hours):
         entry = gd(interaction.guild_id)
-        end = datetime.now(MOSCOW).timestamp() + hours * 3600
+        now_ts = datetime.now(MOSCOW).timestamp()
+        # Guards against double-clicks/retries spawning two of the same preset timer
+        # at once — each would independently trigger its own duplicate ping.
+        existing = next((t for t in entry["custom_timers"]
+                          if t["name"] == name and t["end"] > now_ts), None)
+        if existing:
+            await _reply_dismiss(interaction, f"**{name}** is already running — "
+                                  f"{fmt_rem(existing['end'] - now_ts)} left.")
+            return
+        end = now_ts + hours * 3600
         entry["custom_timers"].append({"name": name, "end": end})
         entry["custom_timers"].sort(key=lambda t: t["end"])
         save_data(guild_data)
