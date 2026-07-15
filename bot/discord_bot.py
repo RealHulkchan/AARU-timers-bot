@@ -229,13 +229,17 @@ def gd(guild_id):
 
 # Targets that can have a ping role configured. Custom-timer targets are matched
 # by the timer's name (case-insensitive) — this covers both the preset buttons and
-# /timer start when someone types one of these names. JMG is matched against the
-# schedule instead, since it's not a custom timer.
+# /timer start when someone types one of these names. Schedule targets (fixed
+# in-game timing, not a manually-started timer) are matched against the schedule
+# by event key instead — JMG and Skyfin already exist in the schedule; Halcy has
+# no schedule entry yet, so its ping simply won't fire until one is added.
 PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
                 ("morpheus", "Morpheus"), ("rangora", "Rangora"),
                 ("skyfin", "Skyfin"), ("halcy", "Halcy")]
 PING_LABELS = dict(PING_TARGETS)
-NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS if key != "jmg"}
+SCHEDULE_PING_KEYS = {"jmg", "skyfin", "halcy"}
+NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
+                     if key not in SCHEDULE_PING_KEYS}
 
 
 # ── Embed builder ────────────────────────────────────────────────────────────────
@@ -330,8 +334,7 @@ async def _reply_dismiss(interaction: discord.Interaction, content: str = None, 
 # One-click preset timers shown as buttons under the board (mirrors the desktop
 # widget's _TIMER_PRESETS). Fixed custom_ids + timeout=None so the buttons keep
 # working after a bot restart, as long as the view is re-registered in setup_hook.
-TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0),
-                  ("Skyfin", 5 / 60), ("Halcy", 5 / 60)]
+TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0)]
 
 
 class PresetView(discord.ui.View):
@@ -372,16 +375,6 @@ class PresetView(discord.ui.View):
                         custom_id="preset_rangora")
     async def add_rangora(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._start(interaction, "Rangora", 12.0)
-
-    @discord.ui.button(label="+ Skyfin", style=discord.ButtonStyle.secondary,
-                        custom_id="preset_skyfin")
-    async def add_skyfin(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._start(interaction, "Skyfin", 5 / 60)
-
-    @discord.ui.button(label="+ Halcy", style=discord.ButtonStyle.secondary,
-                        custom_id="preset_halcy")
-    async def add_halcy(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._start(interaction, "Halcy", 5 / 60)
 
 
 def build_role_embed():
@@ -494,10 +487,16 @@ PING_WINDOWS = [
 
 async def _check_pings(guild_id, entry, channel, now_ts):
     """Ping the configured role 15 minutes AND 2 minutes before a Guild Boss/
-    Morpheus/Rangora custom timer starts, or JMG's next occurrence starts."""
+    Morpheus/Rangora custom timer starts, or a schedule target (JMG/Skyfin/Halcy)
+    next occurs."""
     ping_roles = entry["ping_roles"]
     if not ping_roles:
         return
+
+    now_dt = datetime.now(MOSCOW)
+    # count=60 so a schedule target isn't missed just because other events fill
+    # the first few nearer-term slots.
+    occs = upcoming_occurrences(now_dt, count=60)
 
     for window_secs, flag, occ_key in PING_WINDOWS:
         for t in entry["custom_timers"]:
@@ -511,18 +510,20 @@ async def _check_pings(guild_id, entry, channel, now_ts):
                 save_data(guild_data)
                 await _send_ping(channel, role_id, PING_LABELS[key], rem)
 
-        jmg_role = ping_roles.get("jmg")
-        if jmg_role:
-            now_dt = datetime.now(MOSCOW)
-            upcoming_jmg = next((o for o in upcoming_occurrences(now_dt, count=10) if o.key == "jmg"), None)
-            if upcoming_jmg:
-                rem = (upcoming_jmg.dt - now_dt).total_seconds()
-                occ_id = upcoming_jmg.dt.isoformat()
-                occ_dict = entry[occ_key]
-                if occ_dict.get("jmg") != occ_id and 0 < rem <= window_secs:
-                    occ_dict["jmg"] = occ_id
-                    save_data(guild_data)
-                    await _send_ping(channel, jmg_role, "JMG", rem)
+        for sched_key in SCHEDULE_PING_KEYS:
+            role_id = ping_roles.get(sched_key)
+            if not role_id:
+                continue
+            occ = next((o for o in occs if o.key == sched_key), None)
+            if occ is None:
+                continue
+            rem = (occ.dt - now_dt).total_seconds()
+            occ_id = occ.dt.isoformat()
+            occ_dict = entry[occ_key]
+            if occ_dict.get(sched_key) != occ_id and 0 < rem <= window_secs:
+                occ_dict[sched_key] = occ_id
+                save_data(guild_data)
+                await _send_ping(channel, role_id, PING_LABELS[sched_key], rem)
 
 
 async def _send_ping(channel, role_id, label, rem_secs):
