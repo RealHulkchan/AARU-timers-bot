@@ -1,0 +1,7 @@
+.env
+bot_timers.json
+__pycache__/
+*.pyc
+translator_config.json
+translator_config.json.bak
+translator_names.json
