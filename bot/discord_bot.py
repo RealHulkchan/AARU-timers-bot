@@ -11,11 +11,14 @@ Setup:
     python discord_bot.py
 
 Commands (all slash commands):
-    /setup                          - post the live timer board in this channel
-    /timer start name hours         - start a custom countdown (guild boss etc.)
-    /timer list                     - list running custom timers
-    /timer cancel name              - cancel a running custom timer
-    /events                         - one-off snapshot (ephemeral)
+    /setup                           - post the live timer board in this channel
+    /timer start name hours          - start a custom countdown (guild boss etc.)
+    /timer list                      - list running custom timers
+    /timer cancel name               - cancel a running custom timer
+    /roles set target role           - ping `role` 15m before Guild Boss/JMG/Morpheus/Rangora ends
+    /roles clear target              - stop pinging for that target
+    /roles list                      - show configured ping roles
+    /events                          - one-off snapshot (ephemeral, auto-dismisses)
 """
 
 import os
@@ -203,12 +206,31 @@ def save_data(data):
         print(f"[SAVE] failed: {e}")
 
 
-guild_data = load_data()   # {guild_id_str: {"channel_id", "message_id", "custom_timers":[{"name","end"}]}}
+guild_data = load_data()   # {guild_id_str: {"channel_id", "message_id", "custom_timers":[{"name","end","pinged"}],
+                            #                 "ping_roles": {target_key: role_id}, "pinged_occ": {target_key: occ_id}}}
 
 
 def gd(guild_id):
-    return guild_data.setdefault(str(guild_id), {"channel_id": None, "message_id": None,
-                                                   "custom_timers": []})
+    """Fetch (or create) a guild's entry, back-filling any keys older saved data
+    is missing — setdefault at the guild_data level alone won't add new keys to
+    an entry that already existed on disk before a feature was added."""
+    entry = guild_data.setdefault(str(guild_id), {})
+    entry.setdefault("channel_id", None)
+    entry.setdefault("message_id", None)
+    entry.setdefault("custom_timers", [])
+    entry.setdefault("ping_roles", {})
+    entry.setdefault("pinged_occ", {})
+    return entry
+
+
+# Targets that can have a ping role configured. Custom-timer targets are matched
+# by the timer's name (case-insensitive) — this covers both the preset buttons and
+# /timer start when someone types one of these names. JMG is matched against the
+# schedule instead, since it's not a custom timer.
+PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
+                ("morpheus", "Morpheus"), ("rangora", "Rangora")]
+PING_LABELS = dict(PING_TARGETS)
+NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS if key != "jmg"}
 
 
 # ── Embed builder ────────────────────────────────────────────────────────────────
@@ -285,10 +307,11 @@ def build_embed(entry):
     return embed
 
 
-async def _reply_dismiss(interaction: discord.Interaction, content: str, *, delay: float = 120):
+async def _reply_dismiss(interaction: discord.Interaction, content: str = None, *,
+                          embed: discord.Embed = None, delay: float = 120):
     """Ephemeral reply that deletes itself after `delay` seconds (Discord has no
     native auto-expiry for ephemeral messages, so the bot has to clean up after itself)."""
-    await interaction.response.send_message(content, ephemeral=True)
+    await interaction.response.send_message(content=content, embed=embed, ephemeral=True)
 
     async def _later():
         await asyncio.sleep(delay)
@@ -359,6 +382,48 @@ async def on_ready():
     print(f"[READY] logged in as {client.user}")
 
 
+PING_WINDOW_SECS = 15 * 60
+
+
+async def _check_pings(guild_id, entry, channel, now_ts):
+    """Ping the configured role once, 15 minutes before a Guild Boss/Morpheus/
+    Rangora custom timer ends or JMG's next occurrence starts."""
+    ping_roles = entry["ping_roles"]
+    if not ping_roles:
+        return
+
+    for t in entry["custom_timers"]:
+        key = NAME_TO_PING_KEY.get(t["name"].strip().lower())
+        role_id = key and ping_roles.get(key)
+        rem = t["end"] - now_ts
+        if role_id and not t.get("pinged") and 0 < rem <= PING_WINDOW_SECS:
+            if await _send_ping(channel, role_id, PING_LABELS[key], rem):
+                t["pinged"] = True
+                save_data(guild_data)
+
+    jmg_role = ping_roles.get("jmg")
+    if jmg_role:
+        now_dt = datetime.now(MOSCOW)
+        upcoming_jmg = next((o for o in upcoming_occurrences(now_dt, count=10) if o.key == "jmg"), None)
+        if upcoming_jmg:
+            rem = (upcoming_jmg.dt - now_dt).total_seconds()
+            occ_id = upcoming_jmg.dt.isoformat()
+            if entry["pinged_occ"].get("jmg") != occ_id and 0 < rem <= PING_WINDOW_SECS:
+                if await _send_ping(channel, jmg_role, "JMG", rem):
+                    entry["pinged_occ"]["jmg"] = occ_id
+                    save_data(guild_data)
+
+
+async def _send_ping(channel, role_id, label, rem_secs):
+    try:
+        await channel.send(f"<@&{role_id}> **{label}** in {fmt_rem(rem_secs)}!",
+                            allowed_mentions=discord.AllowedMentions(roles=True))
+        return True
+    except Exception as e:
+        print(f"[PING] {label} failed: {e}")
+        return False
+
+
 @tasks.loop(seconds=15)
 async def refresh_loop():
     expired_any = False
@@ -389,6 +454,8 @@ async def refresh_loop():
             except Exception as e:
                 print(f"[TICK] guild {guild_id}: channel fetch failed: {e}")
                 continue
+
+        await _check_pings(guild_id, entry, channel, now_ts)
 
         embed = build_embed(entry)
         try:
@@ -487,11 +554,48 @@ async def timer_cancel_autocomplete(interaction: discord.Interaction, current: s
 client.tree.add_command(timer_group)
 
 
+roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m before a timer ends")
+
+
+@roles_group.command(name="set", description="Ping a role 15 minutes before this timer ends")
+@app_commands.describe(target="Which timer/event", role="Role to ping")
+@app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
+@app_commands.checks.has_permissions(manage_guild=True)
+async def roles_set(interaction: discord.Interaction, target: app_commands.Choice[str], role: discord.Role):
+    entry = gd(interaction.guild_id)
+    entry["ping_roles"][target.value] = role.id
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{target.name}** will now ping {role.mention} 15 minutes before it ends.")
+
+
+@roles_group.command(name="clear", description="Stop pinging a role for this timer")
+@app_commands.describe(target="Which timer/event")
+@app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
+@app_commands.checks.has_permissions(manage_guild=True)
+async def roles_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    had = entry["ping_roles"].pop(target.value, None) is not None
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"Cleared the ping role for **{target.name}**."
+                          if had else f"**{target.name}** had no ping role set.")
+
+
+@roles_group.command(name="list", description="Show configured ping roles")
+async def roles_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    lines = [f"**{label}** — " + (f"<@&{entry['ping_roles'][key]}>" if key in entry["ping_roles"] else "not set")
+             for key, label in PING_TARGETS]
+    await _reply_dismiss(interaction, "\n".join(lines))
+
+
+client.tree.add_command(roles_group)
+
+
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
 async def events_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     embed = build_embed(entry)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await _reply_dismiss(interaction, embed=embed)
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────────
