@@ -233,6 +233,14 @@ def gd(guild_id):
     return entry
 
 
+# refresh_loop iterates guild_data entries directly (not through gd()), so a guild
+# persisted before a feature added new keys would never get them backfilled and
+# crash the loop with a KeyError the first time it ran post-deploy. Force every
+# already-saved guild through gd() once at startup so this can't happen again.
+for _gid in list(guild_data.keys()):
+    gd(_gid)
+
+
 # Targets that can have a ping role configured. Custom-timer targets are matched
 # by the timer's name (case-insensitive) — this covers both the preset buttons and
 # /timer start when someone types one of these names. Schedule targets (fixed
