@@ -24,6 +24,7 @@ Commands (all slash commands):
     /names clear key language        - reset an event/boss's name back to default
     /names list                      - show every event/boss's name in both languages
     /events                          - one-off snapshot (ephemeral, auto-dismisses)
+    /clear                           - delete this bot's own messages in the channel (Manage Messages)
 """
 
 import os
@@ -1006,6 +1007,23 @@ async def events_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     embed = build_embed(entry)
     await _reply_dismiss(interaction, embed=embed)
+
+
+@client.tree.command(name="clear", description="Delete this bot's own messages in this channel")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def clear_cmd(interaction: discord.Interaction):
+    # Only ever touches messages this bot itself sent (board/ping/confirmation
+    # leftovers) — never other users' messages, so it's safe without a confirm
+    # step. Gated on Manage Messages, same bar as the preset timer buttons.
+    await interaction.response.defer(ephemeral=True)
+    bot_id = client.user.id
+    deleted = await interaction.channel.purge(limit=1000, check=lambda m: m.author.id == bot_id)
+    entry = guild_data.get(str(interaction.guild_id))
+    if entry and entry.get("channel_id") == interaction.channel_id:
+        _unbind(interaction.guild_id, entry, "board message cleared via /clear")
+    await interaction.followup.send(
+        f"Deleted {len(deleted)} of my messages. Run `/setup` again to repost the board.",
+        ephemeral=True)
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────────
