@@ -475,6 +475,17 @@ class PresetView(discord.ui.View):
             if key:
                 child.label = f"+ {get_name(entry, key)}"
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Runs before any button in this view — starting a preset timer affects
+        the shared board for everyone, so it's gated the same way /setup and
+        /roles set are (Manage Server), unlike the self-assign role buttons which
+        are meant to be open to all members."""
+        if not interaction.user.guild_permissions.manage_guild:
+            await _reply_dismiss(interaction, "Starting a preset timer requires the "
+                                  "**Manage Server** permission.")
+            return False
+        return True
+
     async def _start(self, interaction, name, hours):
         entry = gd(interaction.guild_id)
         now_ts = datetime.now(MOSCOW).timestamp()
