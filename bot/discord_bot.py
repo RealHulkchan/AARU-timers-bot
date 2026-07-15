@@ -15,7 +15,7 @@ Commands (all slash commands):
     /timer start name hours          - start a custom countdown (guild boss etc.)
     /timer list                      - list running custom timers
     /timer cancel name               - cancel a running custom timer
-    /roles set target role           - ping `role` 15m before Guild Boss/JMG/Morpheus/Rangora ends
+    /roles set target role           - ping `role` 15m before Guild Boss/JMG/Morpheus/Rangora starts
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
     /roles message                   - post a permanent self-assign button message for the 4 roles
@@ -366,7 +366,7 @@ def build_role_embed():
     embed = discord.Embed(
         title="🔔 Opt Into Timer Pings",
         description=("Click a button to get **or remove** a role — you'll be pinged "
-                      "15 minutes before that timer ends.\n\n"
+                      "15 minutes before that timer starts.\n\n"
                       "*An admin binds each button to a role with `/roles set`.*"),
         color=EMBED_COLOR)
     return embed
@@ -399,7 +399,7 @@ class RoleButtonView(discord.ui.View):
             else:
                 await member.add_roles(role, reason="Self-assigned via timer role button")
                 await _reply_dismiss(interaction, f"Gave you {role.mention} — you'll be pinged "
-                                      f"15 minutes before **{label}** ends.")
+                                      f"15 minutes before **{label}** starts.")
         except discord.Forbidden:
             await _reply_dismiss(interaction, "I can't manage that role — check I have "
                                   "**Manage Roles** and my role is positioned above it.")
@@ -456,7 +456,7 @@ PING_WINDOW_SECS = 15 * 60
 
 async def _check_pings(guild_id, entry, channel, now_ts):
     """Ping the configured role once, 15 minutes before a Guild Boss/Morpheus/
-    Rangora custom timer ends or JMG's next occurrence starts."""
+    Rangora custom timer starts, or JMG's next occurrence starts."""
     ping_roles = entry["ping_roles"]
     if not ping_roles:
         return
@@ -625,10 +625,10 @@ async def timer_cancel_autocomplete(interaction: discord.Interaction, current: s
 client.tree.add_command(timer_group)
 
 
-roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m before a timer ends")
+roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m before a timer starts")
 
 
-@roles_group.command(name="set", description="Ping a role 15 minutes before this timer ends")
+@roles_group.command(name="set", description="Ping a role 15 minutes before this timer starts")
 @app_commands.describe(target="Which timer/event", role="Role to ping")
 @app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
 @app_commands.checks.has_permissions(manage_guild=True)
@@ -636,7 +636,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
     entry = gd(interaction.guild_id)
     entry["ping_roles"][target.value] = role.id
     save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{target.name}** will now ping {role.mention} 15 minutes before it ends.")
+    await _reply_dismiss(interaction, f"**{target.name}** will now ping {role.mention} 15 minutes before it starts.")
 
 
 @roles_group.command(name="clear", description="Stop pinging a role for this timer")
