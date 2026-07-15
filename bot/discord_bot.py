@@ -285,6 +285,42 @@ def build_embed(entry):
     return embed
 
 
+# One-click preset timers shown as buttons under the board (mirrors the desktop
+# widget's _TIMER_PRESETS). Fixed custom_ids + timeout=None so the buttons keep
+# working after a bot restart, as long as the view is re-registered in setup_hook.
+TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0)]
+
+
+class PresetView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _start(self, interaction, name, hours):
+        entry = gd(interaction.guild_id)
+        end = datetime.now(MOSCOW).timestamp() + hours * 3600
+        entry["custom_timers"].append({"name": name, "end": end})
+        entry["custom_timers"].sort(key=lambda t: t["end"])
+        save_data(guild_data)
+        await interaction.response.send_message(
+            f"Timer started: **{name}** — {dur_label(hours)}. It'll appear on the "
+            "board within 15s.", ephemeral=True)
+
+    @discord.ui.button(label="+ Guild Boss", style=discord.ButtonStyle.secondary,
+                        custom_id="preset_guild_boss")
+    async def add_guild_boss(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start(interaction, "Guild Boss", 2.0)
+
+    @discord.ui.button(label="+ Morph", style=discord.ButtonStyle.secondary,
+                        custom_id="preset_morph")
+    async def add_morph(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start(interaction, "Morpheus", 12.0)
+
+    @discord.ui.button(label="+ Rangora", style=discord.ButtonStyle.secondary,
+                        custom_id="preset_rangora")
+    async def add_rangora(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._start(interaction, "Rangora", 12.0)
+
+
 # ── Bot ──────────────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 
@@ -295,6 +331,7 @@ class TimersBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
+        self.add_view(PresetView())   # re-register so buttons work on old messages after a restart
         await self.tree.sync()
         refresh_loop.start()
 
@@ -344,7 +381,7 @@ async def refresh_loop():
                 msg = await channel.fetch_message(entry["message_id"])
                 await msg.edit(embed=embed)
             else:
-                msg = await channel.send(embed=embed)
+                msg = await channel.send(embed=embed, view=PresetView())
                 entry["message_id"] = msg.id
                 save_data(guild_data)
         except discord.NotFound:
@@ -370,7 +407,7 @@ async def before_refresh():
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     embed = build_embed(entry)
-    msg = await interaction.channel.send(embed=embed)
+    msg = await interaction.channel.send(embed=embed, view=PresetView())
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
