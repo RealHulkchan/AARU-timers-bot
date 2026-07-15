@@ -503,10 +503,9 @@ class PresetView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Runs before any button in this view — starting a preset timer affects
-        the shared board for everyone. Gated on Manage Messages specifically (not
-        Manage Server like /setup and /roles set) — a lighter permission bar for
-        these buttons alone, per feedback. RoleButtonView (self-assign ping roles)
-        is untouched and stays open to all members."""
+        the shared board for everyone, so it's gated on Manage Messages, same as
+        every other admin command/button in this bot. RoleButtonView (self-assign
+        ping roles) is untouched and stays open to all members."""
         if not interaction.user.guild_permissions.manage_messages:
             await _reply_dismiss(interaction, "Starting a preset timer requires the "
                                   "**Manage Messages** permission.")
@@ -842,7 +841,7 @@ async def before_refresh():
 
 # ── Slash commands ───────────────────────────────────────────────────────────────
 @client.tree.command(name="setup", description="Post the live ArcheAge timer board in this channel")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     # Posted first so it lands above the board (Discord orders by send time).
@@ -931,7 +930,7 @@ roles_group = app_commands.Group(name="roles", description="Configure which role
 @roles_group.command(name="set", description="Ping a role 15 minutes and 5 minutes before this timer starts")
 @app_commands.describe(target="Which timer/event", role="Role to ping")
 @app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def roles_set(interaction: discord.Interaction, target: app_commands.Choice[str], role: discord.Role):
     entry = gd(interaction.guild_id)
     entry["ping_roles"][target.value] = role.id
@@ -943,7 +942,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
 @roles_group.command(name="clear", description="Stop pinging a role for this timer")
 @app_commands.describe(target="Which timer/event")
 @app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def roles_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
     had = entry["ping_roles"].pop(target.value, None) is not None
@@ -962,7 +961,7 @@ async def roles_list(interaction: discord.Interaction):
 
 
 @roles_group.command(name="message", description="Post a permanent self-assign button message for the four ping roles")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def roles_message(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     await interaction.channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
@@ -980,7 +979,7 @@ LANGUAGE_CHOICES = [app_commands.Choice(name="English", value="en"),
 @language_group.command(name="set", description="Set the board and ping language for this server")
 @app_commands.describe(language="English or Russian")
 @app_commands.choices(language=LANGUAGE_CHOICES)
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def language_set(interaction: discord.Interaction, language: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
     entry["language"] = language.value
@@ -1005,7 +1004,7 @@ names_group = app_commands.Group(name="names", description="Set this server's ow
 @names_group.command(name="set", description="Set an event/boss's name for a language (e.g. a Russian alias)")
 @app_commands.describe(key="Which event/boss", language="English or Russian", text="The name to display")
 @app_commands.choices(language=LANGUAGE_CHOICES)
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def names_set(interaction: discord.Interaction, key: str, language: app_commands.Choice[str], text: str):
     if key not in DEFAULT_NAMES:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
@@ -1027,7 +1026,7 @@ async def names_set_autocomplete(interaction: discord.Interaction, current: str)
 @names_group.command(name="clear", description="Reset an event/boss's name for a language back to default")
 @app_commands.describe(key="Which event/boss", language="English or Russian")
 @app_commands.choices(language=LANGUAGE_CHOICES)
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_messages=True)
 async def names_clear(interaction: discord.Interaction, key: str, language: app_commands.Choice[str]):
     if key not in DEFAULT_NAMES:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")

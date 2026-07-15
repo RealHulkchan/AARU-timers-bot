@@ -10,14 +10,14 @@
 ## Commands
 | Command | Permission | Does |
 |---|---|---|
-| `/setup` | Manage Server | Post/move the board + opt-in role message here |
+| `/setup` | Manage Messages | Post/move the board + opt-in role message here |
 | `/clear` | Manage Messages | Delete the bot's own messages in this channel |
 | `/events` | — | Private snapshot of the board |
 | `/timer start/list/cancel` | — (configure via Integrations tab if wanted) | Manual countdown timers |
-| `/roles set/clear/list` | Manage Server | Bind a role to ping 15m/5m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy |
-| `/roles message` | Manage Server | Re-post just the self-assign role buttons |
-| `/language set/show` | Manage Server (set only) | Toggle board/pings between English/Russian |
-| `/names set/clear/list` | Manage Server (set/clear only) | Rename any event/boss per language |
+| `/roles set/clear/list` | Manage Messages | Bind a role to ping 15m/5m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy |
+| `/roles message` | Manage Messages | Re-post just the self-assign role buttons |
+| `/language set/show` | Manage Messages (set only) | Toggle board/pings between English/Russian |
+| `/names set/clear/list` | Manage Messages (set/clear only) | Rename any event/boss per language |
 
 Preset buttons (`+ Guild Boss/Morph/Rangora`) require Manage Messages to click.
 Role self-assign buttons are open to everyone by design.
