@@ -82,8 +82,6 @@ DAILY_TIMED_EVENTS = [
      ["13:20~14:00", "18:20~19:00", "21:20~22:00"]),
     ("kadum", "\U0001F479", "Kadum",
      ["12:40~13:20", "17:40~18:20", "20:40~21:20"]),
-    ("hiram_city", "\U0001F3DB", "The Fall of Hiram City",
-     ["00:40~01:20", "12:00~12:40", "17:00~17:40", "20:00~20:40"]),
 ]
 
 
@@ -104,10 +102,12 @@ DAILY_INGAME_EVENTS = [
 EventOcc = namedtuple("EventOcc", "key icon name time_str dt end")
 
 # Primary = bosses/PVP (highest priority, own section on the board): every weekly
-# boss/siege plus JMG (also a boss, just on the 4h in-game-clock cycle).
-# Secondary = the remaining clock-driven dailies (GR/SGCR/Hiram Rift/Red Dragon/
-# Skyfin/Kadum/Hiram City/Daily Reset) — same events, lower-priority section.
-PRIMARY_KEYS = frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in day) | {"jmg"}
+# boss/siege plus JMG (also a boss, just on the 4h in-game-clock cycle), minus
+# Abyssal Attack which moved to the Upcoming Events section below.
+# Secondary/"Upcoming Events" = everything else (GR/SGCR/Hiram Rift/Red Dragon/
+# Skyfin/Kadum/Daily Reset/Abyssal Attack).
+PRIMARY_KEYS = (frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in day)
+                | {"jmg"}) - {"abyssal_attack"}
 
 
 def _parse_span(d, t):
@@ -289,7 +289,7 @@ UI = {
         "server_label": "Server (MSK)",
         "custom_timers": "⏱️ Custom Timers",
         "bosses_pvp": "⚔️ Bosses & PVP",
-        "daily_cycles": "🕐 Daily Cycles",
+        "daily_cycles": "🕐 Upcoming Events",
         "live_now": "**Live now**",
         "upcoming": "**Upcoming**",
         "footer": "Updates every 2s",
@@ -303,7 +303,7 @@ UI = {
         "server_label": "Сервер (МСК)",
         "custom_timers": "⏱️ Личные таймеры",
         "bosses_pvp": "⚔️ Боссы и PvP",
-        "daily_cycles": "🕐 Ежедневные циклы",
+        "daily_cycles": "🕐 Ближайшие события",
         "live_now": "**Сейчас идёт**",
         "upcoming": "**Скоро**",
         "footer": "Обновляется каждые 2с",
