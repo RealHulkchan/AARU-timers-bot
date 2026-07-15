@@ -95,6 +95,11 @@ DAILY_INGAME_EVENTS = [
 
 EventOcc = namedtuple("EventOcc", "key icon name time_str dt end")
 
+# Primary = weekly bosses/sieges (highest priority, own section on the board).
+# Secondary = everything clock-driven (CR/GR/SGCR/Hiram Rift/Red Dragon/Skyfin/
+# Kadum/Hiram City/Daily Reset) — same events, just a lower-priority section.
+PRIMARY_KEYS = frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in day)
+
 
 def _parse_span(d, t):
     start_s, _, end_s = t.partition("~")
@@ -201,41 +206,64 @@ def gd(guild_id):
 
 
 # ── Embed builder ────────────────────────────────────────────────────────────────
+# Built as one big markdown description (not embed fields) so section headers can
+# use "##" (renders large/bold) and rows get a full blank line of breathing room —
+# fields force a cramped fixed layout that can't do either.
 EMBED_COLOR = 0xC8A96E
+UPCOMING_PER_SECTION = 6
+
+
+def _live_line(occ, now):
+    rem = max(0, int((occ.end - now).total_seconds()))
+    return f"{occ.icon} **{occ.name}** — {fmt_rem(rem)} left"
+
+
+def _upcoming_line(occ, now):
+    secs = max(0, int((occ.dt - now).total_seconds()))
+    local_t = occ.dt.astimezone(timezone.utc).strftime("%H:%M UTC")
+    return f"{occ.icon} **{occ.name}** — {local_t} · in {fmt_rem(secs)}"
 
 
 def build_embed(entry):
     now = datetime.now(MOSCOW)
-    lines = []
 
-    live = []
+    custom_lines = []
     for t in entry["custom_timers"]:
         rem = t["end"] - now.timestamp()
-        if rem <= 0:
-            live.append(f"⏱ **{t['name']}** — UP!")
-        else:
-            live.append(f"⏱ **{t['name']}** — {fmt_rem(rem)} left")
-    for occ in active_occurrences(now):
-        rem = max(0, int((occ.end - now).total_seconds()))
-        live.append(f"{occ.icon} **{occ.name}** — {fmt_rem(rem)} left")
+        custom_lines.append(f"⏱ **{t['name']}** — UP!" if rem <= 0
+                             else f"⏱ **{t['name']}** — {fmt_rem(rem)} left")
 
-    embed = discord.Embed(title="🗓️ ArcheAge Timers", color=EMBED_COLOR,
-                           timestamp=datetime.now(timezone.utc))
-    embed.add_field(name="Server (MSK)", value=f"`{now:%H:%M:%S}`", inline=False)
+    active = active_occurrences(now)
+    active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
+    active_secondary = [o for o in active if o.key not in PRIMARY_KEYS]
 
-    if live:
-        embed.add_field(name="🟢 LIVE NOW", value="\n".join(live), inline=False)
+    occs = upcoming_occurrences(now, count=40)
+    up_primary   = [o for o in occs if o.key in PRIMARY_KEYS][:UPCOMING_PER_SECTION]
+    up_secondary = [o for o in occs if o.key not in PRIMARY_KEYS][:UPCOMING_PER_SECTION]
 
-    occs = upcoming_occurrences(now, count=8)
-    upcoming = []
-    for occ in occs:
-        secs = max(0, int((occ.dt - now).total_seconds()))
-        cd = fmt_rem(secs)
-        local_t = occ.dt.astimezone(timezone.utc).strftime("%H:%M UTC")
-        upcoming.append(f"{occ.icon} **{occ.name}** — {local_t} · in {cd}")
-    if upcoming:
-        embed.add_field(name="📋 Upcoming", value="\n".join(upcoming), inline=False)
+    parts = [f"Server (MSK) `{now:%H:%M:%S}`"]
 
+    if custom_lines:
+        parts.append("## ⏱️ Custom Timers\n" + "\n\n".join(custom_lines))
+
+    if active_primary or up_primary:
+        section = ["## ⚔️ Bosses & Sieges"]
+        if active_primary:
+            section.append("**Live now**\n" + "\n\n".join(_live_line(o, now) for o in active_primary))
+        if up_primary:
+            section.append("**Upcoming**\n" + "\n\n".join(_upcoming_line(o, now) for o in up_primary))
+        parts.append("\n".join(section))
+
+    if active_secondary or up_secondary:
+        section = ["## 🕐 Daily Cycles"]
+        if active_secondary:
+            section.append("**Live now**\n" + "\n\n".join(_live_line(o, now) for o in active_secondary))
+        if up_secondary:
+            section.append("**Upcoming**\n" + "\n\n".join(_upcoming_line(o, now) for o in up_secondary))
+        parts.append("\n".join(section))
+
+    embed = discord.Embed(title="🗓️ ArcheAge Timers", description="\n\n".join(parts),
+                           color=EMBED_COLOR, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text="Updates every 15s")
     return embed
 
@@ -275,12 +303,24 @@ async def refresh_loop():
 
         if not entry.get("channel_id"):
             continue
+
+        def _unbind(reason):
+            print(f"[TICK] guild {guild_id}: {reason} — unbinding (run /setup again to re-enable)")
+            entry["channel_id"] = None
+            entry["message_id"] = None
+            save_data(guild_data)
+
         channel = client.get_channel(entry["channel_id"])
         if channel is None:
             try:
                 channel = await client.fetch_channel(entry["channel_id"])
-            except Exception:
+            except (discord.NotFound, discord.Forbidden):
+                _unbind("board channel was deleted or is no longer accessible")
                 continue
+            except Exception as e:
+                print(f"[TICK] guild {guild_id}: channel fetch failed: {e}")
+                continue
+
         embed = build_embed(entry)
         try:
             if entry.get("message_id"):
@@ -291,9 +331,11 @@ async def refresh_loop():
                 entry["message_id"] = msg.id
                 save_data(guild_data)
         except discord.NotFound:
-            msg = await channel.send(embed=embed)
-            entry["message_id"] = msg.id
-            save_data(guild_data)
+            # Someone deleted the board message by hand — stop chasing it instead
+            # of silently respawning a new one every 15s; /setup rebinds cleanly.
+            _unbind("board message was deleted")
+        except discord.Forbidden:
+            _unbind("lost permission to post in the board channel")
         except Exception as e:
             print(f"[TICK] guild {guild_id} failed: {e}")
     if expired_any:
@@ -334,8 +376,11 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
     entry["custom_timers"].append({"name": name, "end": end})
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
+    # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
+    # the timer itself shows up under Custom Timers on the live board within 15s.
     await interaction.response.send_message(
-        f"Timer started: **{name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left)")
+        f"Timer started: **{name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
+        "It'll appear on the live board within 15s.", ephemeral=True)
 
 
 @timer_group.command(name="list", description="List running custom timers")
