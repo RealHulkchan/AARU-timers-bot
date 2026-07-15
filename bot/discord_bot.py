@@ -231,13 +231,15 @@ def gd(guild_id):
 # by the timer's name (case-insensitive) — this covers both the preset buttons and
 # /timer start when someone types one of these names. Schedule targets (fixed
 # in-game timing, not a manually-started timer) are matched against the schedule
-# by event key instead — JMG and Skyfin already exist in the schedule; Halcy has
-# no schedule entry yet, so its ping simply won't fire until one is added.
+# by event key instead. "Halcy" is this server's name for Golden Plains Battle,
+# so it aliases to the existing "golden_plains" schedule key rather than needing
+# its own schedule entry.
 PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
                 ("morpheus", "Morpheus"), ("rangora", "Rangora"),
                 ("skyfin", "Skyfin"), ("halcy", "Halcy")]
 PING_LABELS = dict(PING_TARGETS)
 SCHEDULE_PING_KEYS = {"jmg", "skyfin", "halcy"}
+SCHEDULE_KEY_ALIAS = {"halcy": "golden_plains"}   # ping target key -> actual schedule event key
 NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
                      if key not in SCHEDULE_PING_KEYS}
 
@@ -514,7 +516,8 @@ async def _check_pings(guild_id, entry, channel, now_ts):
             role_id = ping_roles.get(sched_key)
             if not role_id:
                 continue
-            occ = next((o for o in occs if o.key == sched_key), None)
+            actual_key = SCHEDULE_KEY_ALIAS.get(sched_key, sched_key)
+            occ = next((o for o in occs if o.key == actual_key), None)
             if occ is None:
                 continue
             rem = (occ.dt - now_dt).total_seconds()
