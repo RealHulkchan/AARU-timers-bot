@@ -435,7 +435,11 @@ class TimersBot(discord.Client):
     async def setup_hook(self):
         self.add_view(PresetView())      # re-register so buttons work on old messages after a restart
         self.add_view(RoleButtonView())
-        await self.tree.sync()
+        try:
+            synced = await self.tree.sync()
+            print(f"[SYNC] {len(synced)} global commands: {[c.name for c in synced]}")
+        except Exception as e:
+            print(f"[SYNC] FAILED: {e!r}")
         refresh_loop.start()
 
 
