@@ -285,6 +285,20 @@ def build_embed(entry):
     return embed
 
 
+async def _reply_dismiss(interaction: discord.Interaction, content: str, *, delay: float = 120):
+    """Ephemeral reply that deletes itself after `delay` seconds (Discord has no
+    native auto-expiry for ephemeral messages, so the bot has to clean up after itself)."""
+    await interaction.response.send_message(content, ephemeral=True)
+
+    async def _later():
+        await asyncio.sleep(delay)
+        try:
+            await interaction.delete_original_response()
+        except Exception:
+            pass
+    asyncio.create_task(_later())
+
+
 # One-click preset timers shown as buttons under the board (mirrors the desktop
 # widget's _TIMER_PRESETS). Fixed custom_ids + timeout=None so the buttons keep
 # working after a bot restart, as long as the view is re-registered in setup_hook.
@@ -301,9 +315,10 @@ class PresetView(discord.ui.View):
         entry["custom_timers"].append({"name": name, "end": end})
         entry["custom_timers"].sort(key=lambda t: t["end"])
         save_data(guild_data)
-        await interaction.response.send_message(
+        await _reply_dismiss(
+            interaction,
             f"Timer started: **{name}** — {dur_label(hours)}. It'll appear on the "
-            "board within 15s.", ephemeral=True)
+            "board within 15s.")
 
     @discord.ui.button(label="+ Guild Boss", style=discord.ButtonStyle.secondary,
                         custom_id="preset_guild_boss")
@@ -411,8 +426,7 @@ async def setup_cmd(interaction: discord.Interaction):
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
-    await interaction.response.send_message("Timer board posted — it'll update every 15s.",
-                                             ephemeral=True)
+    await _reply_dismiss(interaction, "Timer board posted — it'll update every 15s.")
 
 
 timer_group = app_commands.Group(name="timer", description="Custom countdown timers (guild boss respawns etc.)")
@@ -422,7 +436,7 @@ timer_group = app_commands.Group(name="timer", description="Custom countdown tim
 @app_commands.describe(name="Timer name (e.g. Kraken)", hours="Duration in hours (e.g. 2 or 1.5)")
 async def timer_start(interaction: discord.Interaction, name: str, hours: float):
     if hours <= 0 or hours > 72:
-        await interaction.response.send_message("Hours must be between 0 and 72.", ephemeral=True)
+        await _reply_dismiss(interaction, "Hours must be between 0 and 72.")
         return
     entry = gd(interaction.guild_id)
     name = name.strip()[:24] or "timer"
@@ -432,21 +446,22 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
     save_data(guild_data)
     # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
     # the timer itself shows up under Custom Timers on the live board within 15s.
-    await interaction.response.send_message(
+    await _reply_dismiss(
+        interaction,
         f"Timer started: **{name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
-        "It'll appear on the live board within 15s.", ephemeral=True)
+        "It'll appear on the live board within 15s.")
 
 
 @timer_group.command(name="list", description="List running custom timers")
 async def timer_list(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     if not entry["custom_timers"]:
-        await interaction.response.send_message("No custom timers running.", ephemeral=True)
+        await _reply_dismiss(interaction, "No custom timers running.")
         return
     now_ts = datetime.now(MOSCOW).timestamp()
     lines = [f"⏱ **{t['name']}** — {fmt_rem(t['end'] - now_ts)} left"
              for t in entry["custom_timers"]]
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+    await _reply_dismiss(interaction, "\n".join(lines))
 
 
 @timer_group.command(name="cancel", description="Cancel a running custom timer")
@@ -456,10 +471,10 @@ async def timer_cancel(interaction: discord.Interaction, name: str):
     before = len(entry["custom_timers"])
     entry["custom_timers"] = [t for t in entry["custom_timers"] if t["name"] != name]
     if len(entry["custom_timers"]) == before:
-        await interaction.response.send_message(f"No timer named **{name}**.", ephemeral=True)
+        await _reply_dismiss(interaction, f"No timer named **{name}**.")
         return
     save_data(guild_data)
-    await interaction.response.send_message(f"Cancelled **{name}**.", ephemeral=True)
+    await _reply_dismiss(interaction, f"Cancelled **{name}**.")
 
 
 @timer_cancel.autocomplete("name")
