@@ -18,6 +18,7 @@ Commands (all slash commands):
     /roles set target role           - ping `role` 15m before Guild Boss/JMG/Morpheus/Rangora ends
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
+    /roles message                   - post a permanent self-assign button message for the 4 roles
     /events                          - one-off snapshot (ephemeral, auto-dismisses)
 """
 
@@ -359,6 +360,57 @@ class PresetView(discord.ui.View):
         await self._start(interaction, "Rangora", 12.0)
 
 
+# Self-assign buttons for the four ping-role targets (posted once via /roles message,
+# stays forever). Toggles whatever role is currently bound via /roles set — no
+# re-post needed if the role binding changes later.
+class RoleButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _toggle(self, interaction: discord.Interaction, key: str):
+        label = PING_LABELS[key]
+        entry = gd(interaction.guild_id)
+        role_id = entry["ping_roles"].get(key)
+        if not role_id:
+            await _reply_dismiss(interaction, f"No role is bound to **{label}** yet — "
+                                  f"an admin needs to run `/roles set`.")
+            return
+        role = interaction.guild.get_role(role_id)
+        if role is None:
+            await _reply_dismiss(interaction, f"The role bound to **{label}** no longer exists.")
+            return
+        member = interaction.user
+        try:
+            if role in member.roles:
+                await member.remove_roles(role, reason="Self-unassigned via timer role button")
+                await _reply_dismiss(interaction, f"Removed {role.mention} — no more **{label}** pings.")
+            else:
+                await member.add_roles(role, reason="Self-assigned via timer role button")
+                await _reply_dismiss(interaction, f"Gave you {role.mention} — you'll be pinged "
+                                      f"15 minutes before **{label}** ends.")
+        except discord.Forbidden:
+            await _reply_dismiss(interaction, "I can't manage that role — check I have "
+                                  "**Manage Roles** and my role is positioned above it.")
+        except Exception as e:
+            await _reply_dismiss(interaction, f"Failed: {e}")
+
+    @discord.ui.button(label="JMG", style=discord.ButtonStyle.secondary, custom_id="role_jmg")
+    async def jmg_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "jmg")
+
+    @discord.ui.button(label="Rangora", style=discord.ButtonStyle.secondary, custom_id="role_rangora")
+    async def rangora_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "rangora")
+
+    @discord.ui.button(label="Morpheus", style=discord.ButtonStyle.secondary, custom_id="role_morpheus")
+    async def morpheus_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "morpheus")
+
+    @discord.ui.button(label="Guild Boss", style=discord.ButtonStyle.secondary, custom_id="role_guild_boss")
+    async def guild_boss_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "guild_boss")
+
+
 # ── Bot ──────────────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 
@@ -369,7 +421,8 @@ class TimersBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        self.add_view(PresetView())   # re-register so buttons work on old messages after a restart
+        self.add_view(PresetView())      # re-register so buttons work on old messages after a restart
+        self.add_view(RoleButtonView())
         await self.tree.sync()
         refresh_loop.start()
 
@@ -586,6 +639,17 @@ async def roles_list(interaction: discord.Interaction):
     lines = [f"**{label}** — " + (f"<@&{entry['ping_roles'][key]}>" if key in entry["ping_roles"] else "not set")
              for key, label in PING_TARGETS]
     await _reply_dismiss(interaction, "\n".join(lines))
+
+
+@roles_group.command(name="message", description="Post a permanent self-assign button message for the four ping roles")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def roles_message(interaction: discord.Interaction):
+    await interaction.channel.send(
+        "**Opt into timer pings** — click a button to get (or remove) a role and be "
+        "pinged 15 minutes before that timer ends.\nAn admin sets which role each "
+        "button controls with `/roles set`.",
+        view=RoleButtonView())
+    await _reply_dismiss(interaction, "Posted.")
 
 
 client.tree.add_command(roles_group)
