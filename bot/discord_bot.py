@@ -1028,7 +1028,19 @@ async def clear_cmd(interaction: discord.Interaction):
     # step. Gated on Manage Messages, same bar as the preset timer buttons.
     await interaction.response.defer(ephemeral=True)
     bot_id = client.user.id
-    deleted = await interaction.channel.purge(limit=1000, check=lambda m: m.author.id == bot_id)
+    try:
+        deleted = await interaction.channel.purge(limit=1000, check=lambda m: m.author.id == bot_id)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "I don't have permission to delete messages here — check I have "
+            "**Manage Messages** and **Read Message History** in this channel.",
+            ephemeral=True)
+        return
+    except Exception as e:
+        print(f"[CLEAR] guild {interaction.guild_id} failed: {e}")
+        await interaction.followup.send(f"Clear failed: {e}", ephemeral=True)
+        return
+
     entry = guild_data.get(str(interaction.guild_id))
     if entry and entry.get("channel_id") == interaction.channel_id:
         _unbind(interaction.guild_id, entry, "board message cleared via /clear")
