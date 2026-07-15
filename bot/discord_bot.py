@@ -225,6 +225,17 @@ def _upcoming_line(occ, now):
     return f"{occ.icon} **{occ.name}** — {local_t} · in {fmt_rem(secs)}"
 
 
+def _dedupe_next(occs):
+    """Keep only the soonest occurrence of each repeating event (occs is already
+    chronological, so the first one seen per key is the next one)."""
+    seen, out = set(), []
+    for o in occs:
+        if o.key not in seen:
+            seen.add(o.key)
+            out.append(o)
+    return out
+
+
 def build_embed(entry):
     now = datetime.now(MOSCOW)
 
@@ -238,9 +249,9 @@ def build_embed(entry):
     active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
     active_secondary = [o for o in active if o.key not in PRIMARY_KEYS]
 
-    occs = upcoming_occurrences(now, count=40)
-    up_primary   = [o for o in occs if o.key in PRIMARY_KEYS][:UPCOMING_PER_SECTION]
-    up_secondary = [o for o in occs if o.key not in PRIMARY_KEYS][:UPCOMING_PER_SECTION]
+    occs = upcoming_occurrences(now, count=60)
+    up_primary   = _dedupe_next(o for o in occs if o.key in PRIMARY_KEYS)[:UPCOMING_PER_SECTION]
+    up_secondary = _dedupe_next(o for o in occs if o.key not in PRIMARY_KEYS)[:UPCOMING_PER_SECTION]
 
     parts = [f"Server (MSK) `{now:%H:%M:%S}`"]
 
