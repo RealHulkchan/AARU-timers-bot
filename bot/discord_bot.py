@@ -261,11 +261,13 @@ NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
 
 # ── Localization ─────────────────────────────────────────────────────────────────
 # Every event/boss name is admin-editable per language via /names set — these are
-# just the English defaults (pulled straight from the schedule data, so there's one
-# source of truth for spelling) plus the four custom-timer/ping-only targets.
-# There are no built-in Russian names: this server's Russian aliases are guild-
-# specific slang (like "Halcy"), not something to guess at, so /names set starts
-# every key pointed at its English default until an admin fills in the Russian one.
+# just the defaults. English defaults are pulled straight from the schedule data
+# (one source of truth for spelling) plus the four custom-timer/ping-only targets.
+# DEFAULT_NAMES_RU is a provided community translation (not guessed) covering the
+# weekly bosses/sieges and the fixed daily events; /names set still overrides
+# either on a per-guild basis, and still covers anything not listed here (the
+# in-game-clock dailies JMG/Normal CR/SGCR/Hiram Rift/GR, and the guild_boss/
+# morpheus/rangora/halcy ping-only targets have no built-in Russian name yet).
 def _collect_default_names():
     names = {}
     for day in WEEKLY_SCHEDULE.values():
@@ -281,6 +283,24 @@ def _collect_default_names():
 DEFAULT_NAMES = _collect_default_names()
 DEFAULT_NAMES.update({"guild_boss": "Guild Boss", "morpheus": "Morpheus",
                        "rangora": "Rangora", "halcy": "Halcy"})
+
+DEFAULT_NAMES_RU = {
+    "kraken": "Кракен",
+    "charybdis": "Калидис",
+    "garden_anthalon": "Анталон (Сады Матери)",
+    "golden_plains": "Битва за Даскшир",
+    "abyssal_attack": "Око Бури",
+    "black_dragon": "Ксанатос",
+    "leviathan": "Левиафан",
+    "fesanix": "Фесаникс (Пепельные равнины)",
+    "castle_siege": "Осада замка",
+    "invasion": "Оборона Ифнира",
+    "prairie": "Великий Луг",
+    "daily_reset": "Ресеты",
+    "skyfin": "Битва за Зачарованные пруды",
+    "red_dragon_keep": "Логово дракона (Гартарейн)",
+    "kadum": "Ущелье кровавой росы (Гардум)",
+}
 
 # Static board/UI chrome — these ARE translated up front (ordinary interface text,
 # not guild-specific game slang, so no need to defer to an admin command).
@@ -321,14 +341,17 @@ def ui(entry, key):
 
 
 def get_name(entry, key, fallback=None):
-    """Localized display name for an event/boss key: guild's override for the
-    current language, else the guild's English override, else the built-in
-    English default, else the caller-supplied fallback (e.g. a raw custom-timer
-    name that isn't one of the known translatable keys)."""
+    """Localized display name for an event/boss key, in priority order: the
+    guild's override for the current language, the built-in Russian default (if
+    the guild is in RU and one exists), the guild's English override, the
+    built-in English default, else the caller-supplied fallback (e.g. a raw
+    custom-timer name that isn't one of the known translatable keys)."""
     lang = entry.get("language", "en")
     overrides = entry["event_names"].get(key, {})
     if overrides.get(lang):
         return overrides[lang]
+    if lang == "ru" and key in DEFAULT_NAMES_RU:
+        return DEFAULT_NAMES_RU[key]
     if overrides.get("en"):
         return overrides["en"]
     return DEFAULT_NAMES.get(key, fallback if fallback is not None else key)
@@ -1003,7 +1026,7 @@ async def names_list(interaction: discord.Interaction):
     for key, default_en in sorted(DEFAULT_NAMES.items(), key=lambda kv: kv[1]):
         overrides = entry["event_names"].get(key, {})
         en = overrides.get("en", default_en)
-        ru = overrides.get("ru", default_en)
+        ru = overrides.get("ru", DEFAULT_NAMES_RU.get(key, default_en))
         lines.append(f"**{default_en}** — EN: {en} · RU: {ru}")
     # Discord messages cap at 2000 chars / embed descriptions at 4096; chunk defensively.
     text = "\n".join(lines)
