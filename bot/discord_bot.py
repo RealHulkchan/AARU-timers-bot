@@ -812,13 +812,28 @@ timer_group = app_commands.Group(name="timer", description="Custom countdown tim
 
 @timer_group.command(name="start", description="Start a custom countdown timer")
 @app_commands.describe(name="Timer name (e.g. Kraken)", hours="Duration in hours (e.g. 2 or 1.5)")
+@app_commands.checks.has_permissions(manage_messages=True)
 async def timer_start(interaction: discord.Interaction, name: str, hours: float):
+    # Gated the same as the preset buttons (Manage Messages) — this command can
+    # start a timer under any name, so it's a straight bypass of that button
+    # restriction otherwise, including names that trigger role pings.
     if hours <= 0 or hours > 72:
         await _reply_dismiss(interaction, "Hours must be between 0 and 72.")
         return
     entry = gd(interaction.guild_id)
     name = name.strip()[:24] or "timer"
-    end = datetime.now(MOSCOW).timestamp() + hours * 3600
+    now_ts = datetime.now(MOSCOW).timestamp()
+    # Same duplicate guard as the preset buttons — blocks double-submits/retries
+    # from spawning two timers under the same name that would each ping on their
+    # own schedule.
+    existing = next((t for t in entry["custom_timers"]
+                      if t["name"] == name and t["end"] > now_ts), None)
+    if existing:
+        display = _custom_timer_name(entry, {"name": name})
+        await _reply_dismiss(interaction, f"**{display}** is already running — "
+                              f"{fmt_rem(existing['end'] - now_ts)} left.")
+        return
+    end = now_ts + hours * 3600
     entry["custom_timers"].append({"name": name, "end": end})
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
