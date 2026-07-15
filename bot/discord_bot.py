@@ -475,9 +475,12 @@ async def _check_pings(guild_id, entry, channel, now_ts):
         role_id = key and ping_roles.get(key)
         rem = t["end"] - now_ts
         if role_id and not t.get("pinged") and 0 < rem <= PING_WINDOW_SECS:
-            if await _send_ping(channel, role_id, PING_LABELS[key], rem):
-                t["pinged"] = True
-                save_data(guild_data)
+            # Marked pinged BEFORE the send (not after) so there's no await window
+            # where a re-entrant check could see "not yet pinged" and fire twice —
+            # at most one send per timer even if something calls in unexpectedly.
+            t["pinged"] = True
+            save_data(guild_data)
+            await _send_ping(channel, role_id, PING_LABELS[key], rem)
 
     jmg_role = ping_roles.get("jmg")
     if jmg_role:
@@ -487,9 +490,9 @@ async def _check_pings(guild_id, entry, channel, now_ts):
             rem = (upcoming_jmg.dt - now_dt).total_seconds()
             occ_id = upcoming_jmg.dt.isoformat()
             if entry["pinged_occ"].get("jmg") != occ_id and 0 < rem <= PING_WINDOW_SECS:
-                if await _send_ping(channel, jmg_role, "JMG", rem):
-                    entry["pinged_occ"]["jmg"] = occ_id
-                    save_data(guild_data)
+                entry["pinged_occ"]["jmg"] = occ_id
+                save_data(guild_data)
+                await _send_ping(channel, jmg_role, "JMG", rem)
 
 
 async def _send_ping(channel, role_id, label, rem_secs):
