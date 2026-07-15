@@ -546,6 +546,11 @@ async def setup_cmd(interaction: discord.Interaction):
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
+    await interaction.channel.send(
+        "**Opt into timer pings** — click a button to get (or remove) a role and be "
+        "pinged 15 minutes before that timer ends.\nAn admin sets which role each "
+        "button controls with `/roles set`.",
+        view=RoleButtonView())
     await _reply_dismiss(interaction, "Timer board posted — it'll update every 15s.")
 
 
