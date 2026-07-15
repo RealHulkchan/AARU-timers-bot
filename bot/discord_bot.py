@@ -818,7 +818,18 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
         return
     entry = gd(interaction.guild_id)
     name = name.strip()[:24] or "timer"
-    end = datetime.now(MOSCOW).timestamp() + hours * 3600
+    now_ts = datetime.now(MOSCOW).timestamp()
+    # Duplicate guard only (no permission change) — blocks double-submits/retries
+    # from spawning two timers under the same name that would each ping on their
+    # own schedule.
+    existing = next((t for t in entry["custom_timers"]
+                      if t["name"] == name and t["end"] > now_ts), None)
+    if existing:
+        display = _custom_timer_name(entry, {"name": name})
+        await _reply_dismiss(interaction, f"**{display}** is already running — "
+                              f"{fmt_rem(existing['end'] - now_ts)} left.")
+        return
+    end = now_ts + hours * 3600
     entry["custom_timers"].append({"name": name, "end": end})
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
