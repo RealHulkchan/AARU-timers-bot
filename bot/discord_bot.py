@@ -442,13 +442,14 @@ async def _reply_dismiss(interaction: discord.Interaction, content: str = None, 
     asyncio.create_task(_later())
 
 
-# One-click preset timers shown as buttons under the board (mirrors the desktop
-# widget's _TIMER_PRESETS). Fixed custom_ids + timeout=None so the buttons keep
-# working after a bot restart, as long as the view is re-registered in setup_hook.
+# One-click preset timers shown as buttons under the board. Fixed custom_ids +
+# timeout=None so the buttons keep working after a bot restart, as long as the
+# view is re-registered in setup_hook.
 # The stored timer NAME is always the canonical English key text (it's how
 # NAME_TO_PING_KEY matches it for pings/board display) — only the visible button
-# LABEL and the confirmation message get translated.
-TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0)]
+# LABEL and the confirmation message get translated. This is the whole point of
+# the key/name split: renaming a boss via /names set can never break matching,
+# because matching never looks at the display name, only at this fixed literal.
 PRESET_BUTTON_KEYS = {"preset_guild_boss": "guild_boss", "preset_morph": "morpheus",
                        "preset_rangora": "rangora"}
 
@@ -752,11 +753,12 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
     entry["custom_timers"].append({"name": name, "end": end})
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
+    display_name = _custom_timer_name(entry, {"name": name})
     # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
     # the timer itself shows up under Custom Timers on the live board within 15s.
     await _reply_dismiss(
         interaction,
-        f"Timer started: **{name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
+        f"Timer started: **{display_name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
         "It'll appear on the live board within 15s.")
 
 
@@ -767,7 +769,7 @@ async def timer_list(interaction: discord.Interaction):
         await _reply_dismiss(interaction, "No custom timers running.")
         return
     now_ts = datetime.now(MOSCOW).timestamp()
-    lines = [f"⏱ **{t['name']}** — {fmt_rem(t['end'] - now_ts)} left"
+    lines = [f"⏱ **{_custom_timer_name(entry, t)}** — {fmt_rem(t['end'] - now_ts)} left"
              for t in entry["custom_timers"]]
     await _reply_dismiss(interaction, "\n".join(lines))
 
