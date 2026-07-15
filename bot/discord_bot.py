@@ -308,7 +308,7 @@ UI = {
     "en": {
         "title": "🗓️ ArcheAge Timers",
         "server_label": "Server (MSK)",
-        "custom_timers": "⏱️ Custom Timers",
+        "custom_timers": "⏱️ Guild Timers",
         "bosses_pvp": "⚔️ Bosses & PVP",
         "daily_cycles": "🕐 Upcoming Events",
         "live_now": "**Live now**",
@@ -322,7 +322,7 @@ UI = {
     "ru": {
         "title": "🗓️ Таймеры ArcheAge",
         "server_label": "Сервер (МСК)",
-        "custom_timers": "⏱️ Личные таймеры",
+        "custom_timers": "⏱️ Гильдейские таймеры",
         "bosses_pvp": "⚔️ Боссы и PvP",
         "daily_cycles": "🕐 Ближайшие события",
         "live_now": "**Сейчас идёт**",
@@ -882,7 +882,7 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
     save_data(guild_data)
     display_name = _custom_timer_name(entry, {"name": name})
     # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
-    # the timer itself shows up under Custom Timers on the live board within 2s.
+    # the timer itself shows up under Guild Timers on the live board within 2s.
     await _reply_dismiss(
         interaction,
         f"Timer started: **{display_name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
