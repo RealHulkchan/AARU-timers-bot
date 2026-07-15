@@ -477,12 +477,13 @@ class PresetView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Runs before any button in this view — starting a preset timer affects
-        the shared board for everyone, so it's gated the same way /setup and
-        /roles set are (Manage Server), unlike the self-assign role buttons which
-        are meant to be open to all members."""
-        if not interaction.user.guild_permissions.manage_guild:
+        the shared board for everyone. Gated on Manage Messages specifically (not
+        Manage Server like /setup and /roles set) — a lighter permission bar for
+        these buttons alone, per feedback. RoleButtonView (self-assign ping roles)
+        is untouched and stays open to all members."""
+        if not interaction.user.guild_permissions.manage_messages:
             await _reply_dismiss(interaction, "Starting a preset timer requires the "
-                                  "**Manage Server** permission.")
+                                  "**Manage Messages** permission.")
             return False
         return True
 
@@ -627,11 +628,15 @@ async def on_ready():
 
 
 # Each alert tier is (window_secs, per-timer "already pinged" flag, per-JMG-occurrence
-# tracking dict key) — kept as separate flags/dicts so the 15m and 5m alerts fire
-# independently instead of the second one being suppressed by the first's flag.
+# tracking dict key, display label) — kept as separate flags/dicts so the 15m and
+# 5m alerts fire independently instead of the second one being suppressed by the
+# first's flag. The display label is the fixed tier name ("15m"/"5m"), NOT the
+# actual remaining time at the moment the 15s tick happened to land — with a 15s
+# poll interval a "15 minute" alert could fire anywhere from 14m45s to 15m00s
+# remaining, which read as a random/buggy number instead of the clean tier value.
 PING_WINDOWS = [
-    (15 * 60, "pinged_15m", "pinged_occ_15m"),
-    (5 * 60,  "pinged_5m",  "pinged_occ_5m"),
+    (15 * 60, "pinged_15m", "pinged_occ_15m", "15m"),
+    (5 * 60,  "pinged_5m",  "pinged_occ_5m",  "5m"),
 ]
 
 
@@ -648,7 +653,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
     # the first few nearer-term slots.
     occs = upcoming_occurrences(now_dt, count=60)
 
-    for window_secs, flag, occ_key in PING_WINDOWS:
+    for window_secs, flag, occ_key, window_label in PING_WINDOWS:
         for t in entry["custom_timers"]:
             key = NAME_TO_PING_KEY.get(t["name"].strip().lower())
             role_id = key and ping_roles.get(key)
@@ -658,7 +663,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
                 # window where a re-entrant check could fire twice.
                 t[flag] = True
                 save_data(guild_data)
-                await _send_ping(channel, role_id, get_name(entry, key), rem)
+                await _send_ping(channel, role_id, get_name(entry, key), window_label)
 
         for sched_key in SCHEDULE_PING_KEYS:
             role_id = ping_roles.get(sched_key)
@@ -674,12 +679,12 @@ async def _check_pings(guild_id, entry, channel, now_ts):
             if occ_dict.get(sched_key) != occ_id and 0 < rem <= window_secs:
                 occ_dict[sched_key] = occ_id
                 save_data(guild_data)
-                await _send_ping(channel, role_id, get_name(entry, sched_key), rem)
+                await _send_ping(channel, role_id, get_name(entry, sched_key), window_label)
 
 
-async def _send_ping(channel, role_id, label, rem_secs):
+async def _send_ping(channel, role_id, label, window_label):
     try:
-        await channel.send(f"<@&{role_id}> **{label}** in {fmt_rem(rem_secs)}!",
+        await channel.send(f"<@&{role_id}> **{label}** in {window_label}!",
                             allowed_mentions=discord.AllowedMentions(roles=True))
         return True
     except Exception as e:
