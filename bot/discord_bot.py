@@ -15,7 +15,7 @@ Commands (all slash commands):
     /timer start name hours          - start a custom countdown (guild boss etc.)
     /timer list                      - list running custom timers
     /timer cancel name               - cancel a running custom timer
-    /roles set target role           - ping `role` 15m AND 2m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy starts
+    /roles set target role           - ping `role` 15m AND 5m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy starts
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
     /roles message                   - post a permanent self-assign button message for the 4 roles
@@ -212,9 +212,9 @@ def save_data(data):
 
 
 guild_data = load_data()   # {guild_id_str: {"channel_id", "message_id",
-                            #                 "custom_timers":[{"name","end","pinged_15m","pinged_2m"}],
+                            #                 "custom_timers":[{"name","end","pinged_15m","pinged_5m"}],
                             #                 "ping_roles": {target_key: role_id},
-                            #                 "pinged_occ_15m": {"jmg": occ_id}, "pinged_occ_2m": {"jmg": occ_id}}}
+                            #                 "pinged_occ_15m": {"jmg": occ_id}, "pinged_occ_5m": {"jmg": occ_id}}}
 
 
 def gd(guild_id):
@@ -227,7 +227,7 @@ def gd(guild_id):
     entry.setdefault("custom_timers", [])
     entry.setdefault("ping_roles", {})
     entry.setdefault("pinged_occ_15m", {})
-    entry.setdefault("pinged_occ_2m", {})
+    entry.setdefault("pinged_occ_5m", {})
     entry.setdefault("language", "en")
     entry.setdefault("event_names", {})   # {event_key: {"en": "...", "ru": "..."}}
     return entry
@@ -295,7 +295,7 @@ UI = {
         "footer": "Updates every 15s",
         "opt_in_title": "🔔 Opt Into Timer Pings",
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
-                         "15 minutes and 2 minutes before that timer starts.\n\n"
+                         "15 minutes and 5 minutes before that timer starts.\n\n"
                          "*An admin binds each button to a role with `/roles set`.*"),
     },
     "ru": {
@@ -309,7 +309,7 @@ UI = {
         "footer": "Обновляется каждые 15с",
         "opt_in_title": "🔔 Подписка на уведомления",
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
-                         "уведомление за 15 и за 2 минуты до начала.\n\n"
+                         "уведомление за 15 и за 5 минут до начала.\n\n"
                          "*Админ привязывает роль к кнопке командой `/roles set`.*"),
     },
 }
@@ -543,7 +543,7 @@ class RoleButtonView(discord.ui.View):
             else:
                 await member.add_roles(role, reason="Self-assigned via timer role button")
                 await _reply_dismiss(interaction, f"Gave you {role.mention} — you'll be pinged "
-                                      f"15 minutes and 2 minutes before **{label}** starts.")
+                                      f"15 minutes and 5 minutes before **{label}** starts.")
         except discord.Forbidden:
             await _reply_dismiss(interaction, "I can't manage that role — check I have "
                                   "**Manage Roles** and my role is positioned above it.")
@@ -604,16 +604,16 @@ async def on_ready():
 
 
 # Each alert tier is (window_secs, per-timer "already pinged" flag, per-JMG-occurrence
-# tracking dict key) — kept as separate flags/dicts so the 15m and 2m alerts fire
+# tracking dict key) — kept as separate flags/dicts so the 15m and 5m alerts fire
 # independently instead of the second one being suppressed by the first's flag.
 PING_WINDOWS = [
     (15 * 60, "pinged_15m", "pinged_occ_15m"),
-    (2 * 60,  "pinged_2m",  "pinged_occ_2m"),
+    (5 * 60,  "pinged_5m",  "pinged_occ_5m"),
 ]
 
 
 async def _check_pings(guild_id, entry, channel, now_ts):
-    """Ping the configured role 15 minutes AND 2 minutes before a Guild Boss/
+    """Ping the configured role 15 minutes AND 5 minutes before a Guild Boss/
     Morpheus/Rangora custom timer starts, or a schedule target (JMG/Skyfin/Halcy)
     next occurs."""
     ping_roles = entry["ping_roles"]
@@ -797,10 +797,10 @@ async def timer_cancel_autocomplete(interaction: discord.Interaction, current: s
 client.tree.add_command(timer_group)
 
 
-roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m and 2m before a timer starts")
+roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m and 5m before a timer starts")
 
 
-@roles_group.command(name="set", description="Ping a role 15 minutes and 2 minutes before this timer starts")
+@roles_group.command(name="set", description="Ping a role 15 minutes and 5 minutes before this timer starts")
 @app_commands.describe(target="Which timer/event", role="Role to ping")
 @app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
 @app_commands.checks.has_permissions(manage_guild=True)
@@ -809,7 +809,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
     entry["ping_roles"][target.value] = role.id
     save_data(guild_data)
     await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** will now ping {role.mention} "
-                          "15 minutes and 2 minutes before it starts.")
+                          "15 minutes and 5 minutes before it starts.")
 
 
 @roles_group.command(name="clear", description="Stop pinging a role for this timer")
