@@ -380,7 +380,12 @@ UPCOMING_PER_SECTION = 6
 
 def _live_line(entry, occ, now):
     rem = max(0, int((occ.end - now).total_seconds()))
-    return f"{occ.icon} **{localized_occ_name(entry, occ)}** — {fmt_rem(rem)} left"
+    # Shows when it ENDS (local tag + MSK), matching Upcoming's local+MSK+count
+    # format instead of a bare countdown.
+    epoch = int(occ.end.timestamp())
+    msk_t = occ.end.strftime("%H:%M")
+    return (f"{occ.icon} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
+            f"· MSK {msk_t} · {fmt_rem(rem)} left")
 
 
 def _upcoming_line(entry, occ, now):
@@ -420,8 +425,12 @@ def build_embed(entry):
     for t in entry["custom_timers"]:
         rem = t["end"] - now.timestamp()
         name = _custom_timer_name(entry, t)
-        custom_lines.append(f"⏱ **{name}** — UP!" if rem <= 0
-                             else f"⏱ **{name}** — {fmt_rem(rem)} left")
+        if rem <= 0:
+            custom_lines.append(f"⏱ **{name}** — UP!")
+        else:
+            epoch = int(t["end"])
+            msk_t = datetime.fromtimestamp(t["end"], tz=MOSCOW).strftime("%H:%M")
+            custom_lines.append(f"⏱ **{name}** — <t:{epoch}:t> · MSK {msk_t} · {fmt_rem(rem)} left")
 
     active = active_occurrences(now)
     active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
@@ -443,29 +452,25 @@ def build_embed(entry):
     if custom_lines:
         parts.append(f"## {ui(entry, 'custom_timers')}\n" + "\n\n".join(custom_lines))
 
-    # A block's own "Live now"/"Upcoming" sub-header stays tight against its list
-    # (single newline), but the two sub-blocks are separated by a blank line from
-    # each other when both are present — previously they ran together with no gap
-    # at all, reading as one cramped run of text right where the board is busiest.
     if active_primary or up_primary:
-        body = []
+        section = [f"## {ui(entry, 'bosses_pvp')}"]
         if active_primary:
-            body.append(ui(entry, "live_now") + "\n" +
-                         "\n\n".join(_live_line(entry, o, now) for o in active_primary))
+            section.append(ui(entry, "live_now") + "\n" +
+                            "\n\n".join(_live_line(entry, o, now) for o in active_primary))
         if up_primary:
-            body.append(ui(entry, "upcoming") + "\n" +
-                         "\n\n".join(_upcoming_line(entry, o, now) for o in up_primary))
-        parts.append(f"## {ui(entry, 'bosses_pvp')}\n" + "\n\n".join(body))
+            section.append(ui(entry, "upcoming") + "\n" +
+                            "\n\n".join(_upcoming_line(entry, o, now) for o in up_primary))
+        parts.append("\n".join(section))
 
     if active_secondary or up_secondary:
-        body = []
+        section = [f"## {ui(entry, 'daily_cycles')}"]
         if active_secondary:
-            body.append(ui(entry, "live_now") + "\n" +
-                         "\n\n".join(_live_line(entry, o, now) for o in active_secondary))
+            section.append(ui(entry, "live_now") + "\n" +
+                            "\n\n".join(_live_line(entry, o, now) for o in active_secondary))
         if up_secondary:
-            body.append(ui(entry, "upcoming") + "\n" +
-                         "\n\n".join(_upcoming_line(entry, o, now) for o in up_secondary))
-        parts.append(f"## {ui(entry, 'daily_cycles')}\n" + "\n\n".join(body))
+            section.append(ui(entry, "upcoming") + "\n" +
+                            "\n\n".join(_upcoming_line(entry, o, now) for o in up_secondary))
+        parts.append("\n".join(section))
 
     # Extra blank line between top-level sections (vs. the single blank line used
     # for spacing within a section) so the section break reads clearly on its own.
