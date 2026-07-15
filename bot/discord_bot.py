@@ -408,7 +408,7 @@ def build_embed(entry):
     up_secondary = _dedupe_next(o for o in occs if o.key not in PRIMARY_KEYS
                                  and o.key not in active_secondary_keys)[:UPCOMING_PER_SECTION]
 
-    parts = [f"{ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
+    parts = [f"# {ui(entry, 'title')} — {ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
 
     if custom_lines:
         parts.append(f"## {ui(entry, 'custom_timers')}\n" + "\n\n".join(custom_lines))
@@ -433,7 +433,9 @@ def build_embed(entry):
                             "\n\n".join(_upcoming_line(entry, o, now) for o in up_secondary))
         parts.append("\n".join(section))
 
-    embed = discord.Embed(title=ui(entry, "title"), description="\n\n".join(parts),
+    # Extra blank line between top-level sections (vs. the single blank line used
+    # for spacing within a section) so the section break reads clearly on its own.
+    embed = discord.Embed(description="\n\n\n".join(parts),
                            color=EMBED_COLOR, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=ui(entry, "footer"))
     return embed
