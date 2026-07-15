@@ -360,6 +360,18 @@ class PresetView(discord.ui.View):
         await self._start(interaction, "Rangora", 12.0)
 
 
+def build_role_embed():
+    """Boxed (embed, not plain text) opt-in message so it visually matches the
+    board instead of looking like a loose announcement."""
+    embed = discord.Embed(
+        title="🔔 Opt Into Timer Pings",
+        description=("Click a button to get **or remove** a role — you'll be pinged "
+                      "15 minutes before that timer ends.\n\n"
+                      "*An admin binds each button to a role with `/roles set`.*"),
+        color=EMBED_COLOR)
+    return embed
+
+
 # Self-assign buttons for the four ping-role targets (posted once via /roles message,
 # stays forever). Toggles whatever role is currently bound via /roles set — no
 # re-post needed if the role binding changes later.
@@ -541,16 +553,13 @@ async def before_refresh():
 @app_commands.checks.has_permissions(manage_guild=True)
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
+    # Posted first so it lands above the board (Discord orders by send time).
+    await interaction.channel.send(embed=build_role_embed(), view=RoleButtonView())
     embed = build_embed(entry)
     msg = await interaction.channel.send(embed=embed, view=PresetView())
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
-    await interaction.channel.send(
-        "**Opt into timer pings** — click a button to get (or remove) a role and be "
-        "pinged 15 minutes before that timer ends.\nAn admin sets which role each "
-        "button controls with `/roles set`.",
-        view=RoleButtonView())
     await _reply_dismiss(interaction, "Timer board posted — it'll update every 15s.")
 
 
@@ -649,11 +658,7 @@ async def roles_list(interaction: discord.Interaction):
 @roles_group.command(name="message", description="Post a permanent self-assign button message for the four ping roles")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def roles_message(interaction: discord.Interaction):
-    await interaction.channel.send(
-        "**Opt into timer pings** — click a button to get (or remove) a role and be "
-        "pinged 15 minutes before that timer ends.\nAn admin sets which role each "
-        "button controls with `/roles set`.",
-        view=RoleButtonView())
+    await interaction.channel.send(embed=build_role_embed(), view=RoleButtonView())
     await _reply_dismiss(interaction, "Posted.")
 
 
