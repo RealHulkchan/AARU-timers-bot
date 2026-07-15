@@ -617,6 +617,7 @@ class TimersBot(discord.Client):
         except Exception as e:
             print(f"[SYNC] FAILED: {e!r}")
         refresh_loop.start()
+        ping_loop.start()
 
 
 client = TimersBot()
@@ -692,6 +693,50 @@ async def _send_ping(channel, role_id, label, window_label):
         return False
 
 
+def _unbind(guild_id, entry, reason):
+    print(f"[TICK] guild {guild_id}: {reason} — unbinding (run /setup again to re-enable)")
+    entry["channel_id"] = None
+    entry["message_id"] = None
+    save_data(guild_data)
+
+
+async def _resolve_channel(guild_id, entry):
+    """Shared by both loops: get_channel is a local cache lookup (no API call),
+    so calling this every second in ping_loop doesn't add request load — only
+    the rare fetch_channel fallback and the actual ping send do."""
+    if not entry.get("channel_id"):
+        return None
+    channel = client.get_channel(entry["channel_id"])
+    if channel is not None:
+        return channel
+    try:
+        return await client.fetch_channel(entry["channel_id"])
+    except (discord.NotFound, discord.Forbidden):
+        _unbind(guild_id, entry, "board channel was deleted or is no longer accessible")
+    except Exception as e:
+        print(f"[TICK] guild {guild_id}: channel fetch failed: {e}")
+    return None
+
+
+@tasks.loop(seconds=1)
+async def ping_loop():
+    """Separate from refresh_loop (which only edits the board every 15s) so
+    alerts fire within ~1s of the 15m/5m mark instead of drifting up to 15s late."""
+    now_ts = datetime.now(MOSCOW).timestamp()
+    for guild_id, entry in list(guild_data.items()):
+        if not entry.get("ping_roles"):
+            continue
+        channel = await _resolve_channel(guild_id, entry)
+        if channel is None:
+            continue
+        await _check_pings(guild_id, entry, channel, now_ts)
+
+
+@ping_loop.before_loop
+async def before_ping():
+    await client.wait_until_ready()
+
+
 @tasks.loop(seconds=15)
 async def refresh_loop():
     expired_any = False
@@ -706,24 +751,9 @@ async def refresh_loop():
         if not entry.get("channel_id"):
             continue
 
-        def _unbind(reason):
-            print(f"[TICK] guild {guild_id}: {reason} — unbinding (run /setup again to re-enable)")
-            entry["channel_id"] = None
-            entry["message_id"] = None
-            save_data(guild_data)
-
-        channel = client.get_channel(entry["channel_id"])
+        channel = await _resolve_channel(guild_id, entry)
         if channel is None:
-            try:
-                channel = await client.fetch_channel(entry["channel_id"])
-            except (discord.NotFound, discord.Forbidden):
-                _unbind("board channel was deleted or is no longer accessible")
-                continue
-            except Exception as e:
-                print(f"[TICK] guild {guild_id}: channel fetch failed: {e}")
-                continue
-
-        await _check_pings(guild_id, entry, channel, now_ts)
+            continue
 
         embed = build_embed(entry)
         try:
@@ -737,9 +767,9 @@ async def refresh_loop():
         except discord.NotFound:
             # Someone deleted the board message by hand — stop chasing it instead
             # of silently respawning a new one every 15s; /setup rebinds cleanly.
-            _unbind("board message was deleted")
+            _unbind(guild_id, entry, "board message was deleted")
         except discord.Forbidden:
-            _unbind("lost permission to post in the board channel")
+            _unbind(guild_id, entry, "lost permission to post in the board channel")
         except Exception as e:
             print(f"[TICK] guild {guild_id} failed: {e}")
     if expired_any:
