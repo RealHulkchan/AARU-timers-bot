@@ -355,8 +355,13 @@ def _live_line(entry, occ, now):
 
 def _upcoming_line(entry, occ, now):
     secs = max(0, int((occ.dt - now).total_seconds()))
-    local_t = occ.dt.astimezone(timezone.utc).strftime("%H:%M UTC")
-    return f"{occ.icon} **{localized_occ_name(entry, occ)}** — {local_t} · in {fmt_rem(secs)}"
+    # <t:epoch:t> is a Discord timestamp tag — it renders in each viewer's own
+    # local time/locale automatically, no per-user config needed. MSK stays
+    # alongside it since that's the server's actual clock.
+    epoch = int(occ.dt.timestamp())
+    msk_t = occ.dt.strftime("%H:%M")
+    return (f"{occ.icon} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
+            f"· MSK {msk_t} · in {fmt_rem(secs)}")
 
 
 def _dedupe_next(occs):
@@ -391,10 +396,17 @@ def build_embed(entry):
     active = active_occurrences(now)
     active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
     active_secondary = [o for o in active if o.key not in PRIMARY_KEYS]
+    active_primary_keys   = {o.key for o in active_primary}
+    active_secondary_keys = {o.key for o in active_secondary}
 
+    # An event already shown under Live Now is excluded from Upcoming — otherwise
+    # its NEXT occurrence (the one after the one currently running) shows up there
+    # too, which reads as if it's about to happen again imminently.
     occs = upcoming_occurrences(now, count=60)
-    up_primary   = _dedupe_next(o for o in occs if o.key in PRIMARY_KEYS)[:UPCOMING_PER_SECTION]
-    up_secondary = _dedupe_next(o for o in occs if o.key not in PRIMARY_KEYS)[:UPCOMING_PER_SECTION]
+    up_primary   = _dedupe_next(o for o in occs if o.key in PRIMARY_KEYS
+                                 and o.key not in active_primary_keys)[:UPCOMING_PER_SECTION]
+    up_secondary = _dedupe_next(o for o in occs if o.key not in PRIMARY_KEYS
+                                 and o.key not in active_secondary_keys)[:UPCOMING_PER_SECTION]
 
     parts = [f"{ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
 
