@@ -654,6 +654,31 @@ async def on_ready():
     print(f"[READY] logged in as {client.user}")
 
 
+@client.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Without this, a failed permission check (or any other error) before the
+    command body ever runs means the interaction is never responded to at all —
+    Discord just shows "the application did not respond" with no explanation."""
+    if isinstance(error, app_commands.MissingPermissions):
+        perms = ", ".join(p.replace("_", " ").title() for p in error.missing_permissions)
+        msg = f"`[403 Missing Permissions]` You need the **{perms}** permission to use this command."
+    elif isinstance(error, app_commands.CheckFailure):
+        msg = "`[403 Forbidden]` You don't have permission to use this command."
+    elif isinstance(error, app_commands.CommandOnCooldown):
+        msg = f"`[429 Cooldown]` Slow down — try again in {error.retry_after:.1f}s."
+    else:
+        print(f"[CMD ERROR] {interaction.command}: {error!r}")
+        msg = "`[500 Command Error]` Something went wrong running that command."
+
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
+
+
 # Each alert tier is (window_secs, per-timer "already pinged" flag, per-JMG-occurrence
 # tracking dict key, display label) — kept as separate flags/dicts so the 15m and
 # 5m alerts fire independently instead of the second one being suppressed by the
