@@ -443,25 +443,29 @@ def build_embed(entry):
     if custom_lines:
         parts.append(f"## {ui(entry, 'custom_timers')}\n" + "\n\n".join(custom_lines))
 
+    # A block's own "Live now"/"Upcoming" sub-header stays tight against its list
+    # (single newline), but the two sub-blocks are separated by a blank line from
+    # each other when both are present — previously they ran together with no gap
+    # at all, reading as one cramped run of text right where the board is busiest.
     if active_primary or up_primary:
-        section = [f"## {ui(entry, 'bosses_pvp')}"]
+        body = []
         if active_primary:
-            section.append(ui(entry, "live_now") + "\n" +
-                            "\n\n".join(_live_line(entry, o, now) for o in active_primary))
+            body.append(ui(entry, "live_now") + "\n" +
+                         "\n\n".join(_live_line(entry, o, now) for o in active_primary))
         if up_primary:
-            section.append(ui(entry, "upcoming") + "\n" +
-                            "\n\n".join(_upcoming_line(entry, o, now) for o in up_primary))
-        parts.append("\n".join(section))
+            body.append(ui(entry, "upcoming") + "\n" +
+                         "\n\n".join(_upcoming_line(entry, o, now) for o in up_primary))
+        parts.append(f"## {ui(entry, 'bosses_pvp')}\n" + "\n\n".join(body))
 
     if active_secondary or up_secondary:
-        section = [f"## {ui(entry, 'daily_cycles')}"]
+        body = []
         if active_secondary:
-            section.append(ui(entry, "live_now") + "\n" +
-                            "\n\n".join(_live_line(entry, o, now) for o in active_secondary))
+            body.append(ui(entry, "live_now") + "\n" +
+                         "\n\n".join(_live_line(entry, o, now) for o in active_secondary))
         if up_secondary:
-            section.append(ui(entry, "upcoming") + "\n" +
-                            "\n\n".join(_upcoming_line(entry, o, now) for o in up_secondary))
-        parts.append("\n".join(section))
+            body.append(ui(entry, "upcoming") + "\n" +
+                         "\n\n".join(_upcoming_line(entry, o, now) for o in up_secondary))
+        parts.append(f"## {ui(entry, 'daily_cycles')}\n" + "\n\n".join(body))
 
     # Extra blank line between top-level sections (vs. the single blank line used
     # for spacing within a section) so the section break reads clearly on its own.
