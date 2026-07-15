@@ -19,6 +19,10 @@ Commands (all slash commands):
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
     /roles message                   - post a permanent self-assign button message for the 4 roles
+    /language set|show               - toggle the board/pings between English and Russian
+    /names set key language text     - set this server's own name for an event/boss in a language
+    /names clear key language        - reset an event/boss's name back to default
+    /names list                      - show every event/boss's name in both languages
     /events                          - one-off snapshot (ephemeral, auto-dismisses)
 """
 
@@ -224,6 +228,8 @@ def gd(guild_id):
     entry.setdefault("ping_roles", {})
     entry.setdefault("pinged_occ_15m", {})
     entry.setdefault("pinged_occ_2m", {})
+    entry.setdefault("language", "en")
+    entry.setdefault("event_names", {})   # {event_key: {"en": "...", "ru": "..."}}
     return entry
 
 
@@ -244,6 +250,88 @@ NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
                      if key not in SCHEDULE_PING_KEYS}
 
 
+# ── Localization ─────────────────────────────────────────────────────────────────
+# Every event/boss name is admin-editable per language via /names set — these are
+# just the English defaults (pulled straight from the schedule data, so there's one
+# source of truth for spelling) plus the four custom-timer/ping-only targets.
+# There are no built-in Russian names: this server's Russian aliases are guild-
+# specific slang (like "Halcy"), not something to guess at, so /names set starts
+# every key pointed at its English default until an admin fills in the Russian one.
+def _collect_default_names():
+    names = {}
+    for day in WEEKLY_SCHEDULE.values():
+        for key, icon, name, _times in day:
+            names.setdefault(key, name)
+    for key, icon, name, _times in DAILY_TIMED_EVENTS:
+        names.setdefault(key, name)
+    for key, icon, name, _hour in DAILY_INGAME_EVENTS:
+        names.setdefault(key, name)
+    return names
+
+
+DEFAULT_NAMES = _collect_default_names()
+DEFAULT_NAMES.update({"guild_boss": "Guild Boss", "morpheus": "Morpheus",
+                       "rangora": "Rangora", "halcy": "Halcy"})
+
+# Static board/UI chrome — these ARE translated up front (ordinary interface text,
+# not guild-specific game slang, so no need to defer to an admin command).
+UI = {
+    "en": {
+        "title": "🗓️ ArcheAge Timers",
+        "server_label": "Server (MSK)",
+        "custom_timers": "⏱️ Custom Timers",
+        "bosses_pvp": "⚔️ Bosses & PVP",
+        "daily_cycles": "🕐 Daily Cycles",
+        "live_now": "**Live now**",
+        "upcoming": "**Upcoming**",
+        "footer": "Updates every 15s",
+        "opt_in_title": "🔔 Opt Into Timer Pings",
+        "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
+                         "15 minutes and 2 minutes before that timer starts.\n\n"
+                         "*An admin binds each button to a role with `/roles set`.*"),
+    },
+    "ru": {
+        "title": "🗓️ Таймеры ArcheAge",
+        "server_label": "Сервер (МСК)",
+        "custom_timers": "⏱️ Личные таймеры",
+        "bosses_pvp": "⚔️ Боссы и PvP",
+        "daily_cycles": "🕐 Ежедневные циклы",
+        "live_now": "**Сейчас идёт**",
+        "upcoming": "**Скоро**",
+        "footer": "Обновляется каждые 15с",
+        "opt_in_title": "🔔 Подписка на уведомления",
+        "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
+                         "уведомление за 15 и за 2 минуты до начала.\n\n"
+                         "*Админ привязывает роль к кнопке командой `/roles set`.*"),
+    },
+}
+
+
+def ui(entry, key):
+    return UI[entry.get("language", "en")][key]
+
+
+def get_name(entry, key, fallback=None):
+    """Localized display name for an event/boss key: guild's override for the
+    current language, else the guild's English override, else the built-in
+    English default, else the caller-supplied fallback (e.g. a raw custom-timer
+    name that isn't one of the known translatable keys)."""
+    lang = entry.get("language", "en")
+    overrides = entry["event_names"].get(key, {})
+    if overrides.get(lang):
+        return overrides[lang]
+    if overrides.get("en"):
+        return overrides["en"]
+    return DEFAULT_NAMES.get(key, fallback if fallback is not None else key)
+
+
+def localized_occ_name(entry, occ):
+    """occ.name may carry an "(in-game HH:00)" suffix baked in by
+    _occurrences_for_date — translate the base name and re-append it."""
+    base, sep, suffix = occ.name.partition(" (in-game ")
+    return get_name(entry, occ.key, base) + (sep + suffix if sep else "")
+
+
 # ── Embed builder ────────────────────────────────────────────────────────────────
 # Built as one big markdown description (not embed fields) so section headers can
 # use "##" (renders large/bold) and rows get a full blank line of breathing room —
@@ -252,15 +340,15 @@ EMBED_COLOR = 0xC8A96E
 UPCOMING_PER_SECTION = 6
 
 
-def _live_line(occ, now):
+def _live_line(entry, occ, now):
     rem = max(0, int((occ.end - now).total_seconds()))
-    return f"{occ.icon} **{occ.name}** — {fmt_rem(rem)} left"
+    return f"{occ.icon} **{localized_occ_name(entry, occ)}** — {fmt_rem(rem)} left"
 
 
-def _upcoming_line(occ, now):
+def _upcoming_line(entry, occ, now):
     secs = max(0, int((occ.dt - now).total_seconds()))
     local_t = occ.dt.astimezone(timezone.utc).strftime("%H:%M UTC")
-    return f"{occ.icon} **{occ.name}** — {local_t} · in {fmt_rem(secs)}"
+    return f"{occ.icon} **{localized_occ_name(entry, occ)}** — {local_t} · in {fmt_rem(secs)}"
 
 
 def _dedupe_next(occs):
@@ -274,14 +362,23 @@ def _dedupe_next(occs):
     return out
 
 
+def _custom_timer_name(entry, t):
+    """A custom timer's display name is translatable if it matches one of the
+    known preset/ping targets (Guild Boss/Morpheus/Rangora); otherwise it's an
+    arbitrary name someone typed via /timer start and is shown as-is."""
+    key = NAME_TO_PING_KEY.get(t["name"].strip().lower())
+    return get_name(entry, key, t["name"]) if key else t["name"]
+
+
 def build_embed(entry):
     now = datetime.now(MOSCOW)
 
     custom_lines = []
     for t in entry["custom_timers"]:
         rem = t["end"] - now.timestamp()
-        custom_lines.append(f"⏱ **{t['name']}** — UP!" if rem <= 0
-                             else f"⏱ **{t['name']}** — {fmt_rem(rem)} left")
+        name = _custom_timer_name(entry, t)
+        custom_lines.append(f"⏱ **{name}** — UP!" if rem <= 0
+                             else f"⏱ **{name}** — {fmt_rem(rem)} left")
 
     active = active_occurrences(now)
     active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
@@ -291,30 +388,34 @@ def build_embed(entry):
     up_primary   = _dedupe_next(o for o in occs if o.key in PRIMARY_KEYS)[:UPCOMING_PER_SECTION]
     up_secondary = _dedupe_next(o for o in occs if o.key not in PRIMARY_KEYS)[:UPCOMING_PER_SECTION]
 
-    parts = [f"Server (MSK) `{now:%H:%M:%S}`"]
+    parts = [f"{ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
 
     if custom_lines:
-        parts.append("## ⏱️ Custom Timers\n" + "\n\n".join(custom_lines))
+        parts.append(f"## {ui(entry, 'custom_timers')}\n" + "\n\n".join(custom_lines))
 
     if active_primary or up_primary:
-        section = ["## ⚔️ Bosses & PVP"]
+        section = [f"## {ui(entry, 'bosses_pvp')}"]
         if active_primary:
-            section.append("**Live now**\n" + "\n\n".join(_live_line(o, now) for o in active_primary))
+            section.append(ui(entry, "live_now") + "\n" +
+                            "\n\n".join(_live_line(entry, o, now) for o in active_primary))
         if up_primary:
-            section.append("**Upcoming**\n" + "\n\n".join(_upcoming_line(o, now) for o in up_primary))
+            section.append(ui(entry, "upcoming") + "\n" +
+                            "\n\n".join(_upcoming_line(entry, o, now) for o in up_primary))
         parts.append("\n".join(section))
 
     if active_secondary or up_secondary:
-        section = ["## 🕐 Daily Cycles"]
+        section = [f"## {ui(entry, 'daily_cycles')}"]
         if active_secondary:
-            section.append("**Live now**\n" + "\n\n".join(_live_line(o, now) for o in active_secondary))
+            section.append(ui(entry, "live_now") + "\n" +
+                            "\n\n".join(_live_line(entry, o, now) for o in active_secondary))
         if up_secondary:
-            section.append("**Upcoming**\n" + "\n\n".join(_upcoming_line(o, now) for o in up_secondary))
+            section.append(ui(entry, "upcoming") + "\n" +
+                            "\n\n".join(_upcoming_line(entry, o, now) for o in up_secondary))
         parts.append("\n".join(section))
 
-    embed = discord.Embed(title="🗓️ ArcheAge Timers", description="\n\n".join(parts),
+    embed = discord.Embed(title=ui(entry, "title"), description="\n\n".join(parts),
                            color=EMBED_COLOR, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text="Updates every 15s")
+    embed.set_footer(text=ui(entry, "footer"))
     return embed
 
 
@@ -336,12 +437,22 @@ async def _reply_dismiss(interaction: discord.Interaction, content: str = None, 
 # One-click preset timers shown as buttons under the board (mirrors the desktop
 # widget's _TIMER_PRESETS). Fixed custom_ids + timeout=None so the buttons keep
 # working after a bot restart, as long as the view is re-registered in setup_hook.
+# The stored timer NAME is always the canonical English key text (it's how
+# NAME_TO_PING_KEY matches it for pings/board display) — only the visible button
+# LABEL and the confirmation message get translated.
 TIMER_PRESETS = [("Guild Boss", 2.0), ("Morpheus", 12.0), ("Rangora", 12.0)]
+PRESET_BUTTON_KEYS = {"preset_guild_boss": "guild_boss", "preset_morph": "morpheus",
+                       "preset_rangora": "rangora"}
 
 
 class PresetView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, entry=None):
         super().__init__(timeout=None)
+        entry = entry or {"language": "en", "event_names": {}}
+        for child in self.children:
+            key = PRESET_BUTTON_KEYS.get(getattr(child, "custom_id", None))
+            if key:
+                child.label = f"+ {get_name(entry, key)}"
 
     async def _start(self, interaction, name, hours):
         entry = gd(interaction.guild_id)
@@ -350,8 +461,9 @@ class PresetView(discord.ui.View):
         # at once — each would independently trigger its own duplicate ping.
         existing = next((t for t in entry["custom_timers"]
                           if t["name"] == name and t["end"] > now_ts), None)
+        display_name = _custom_timer_name(entry, {"name": name})
         if existing:
-            await _reply_dismiss(interaction, f"**{name}** is already running — "
+            await _reply_dismiss(interaction, f"**{display_name}** is already running — "
                                   f"{fmt_rem(existing['end'] - now_ts)} left.")
             return
         end = now_ts + hours * 3600
@@ -360,7 +472,7 @@ class PresetView(discord.ui.View):
         save_data(guild_data)
         await _reply_dismiss(
             interaction,
-            f"Timer started: **{name}** — {dur_label(hours)}. It'll appear on the "
+            f"Timer started: **{display_name}** — {dur_label(hours)}. It'll appear on the "
             "board within 15s.")
 
     @discord.ui.button(label="+ Guild Boss", style=discord.ButtonStyle.secondary,
@@ -379,28 +491,32 @@ class PresetView(discord.ui.View):
         await self._start(interaction, "Rangora", 12.0)
 
 
-def build_role_embed():
+def build_role_embed(entry):
     """Boxed (embed, not plain text) opt-in message so it visually matches the
     board instead of looking like a loose announcement."""
-    embed = discord.Embed(
-        title="🔔 Opt Into Timer Pings",
-        description=("Click a button to get **or remove** a role — you'll be pinged "
-                      "15 minutes and 2 minutes before that timer starts.\n\n"
-                      "*An admin binds each button to a role with `/roles set`.*"),
-        color=EMBED_COLOR)
-    return embed
+    return discord.Embed(title=ui(entry, "opt_in_title"), description=ui(entry, "opt_in_desc"),
+                          color=EMBED_COLOR)
 
 
-# Self-assign buttons for the four ping-role targets (posted once via /roles message,
+ROLE_BUTTON_KEYS = {"role_jmg": "jmg", "role_rangora": "rangora", "role_morpheus": "morpheus",
+                     "role_guild_boss": "guild_boss", "role_skyfin": "skyfin", "role_halcy": "halcy"}
+
+
+# Self-assign buttons for the ping-role targets (posted once via /roles message,
 # stays forever). Toggles whatever role is currently bound via /roles set — no
 # re-post needed if the role binding changes later.
 class RoleButtonView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, entry=None):
         super().__init__(timeout=None)
+        entry = entry or {"language": "en", "event_names": {}}
+        for child in self.children:
+            key = ROLE_BUTTON_KEYS.get(getattr(child, "custom_id", None))
+            if key:
+                child.label = get_name(entry, key)
 
     async def _toggle(self, interaction: discord.Interaction, key: str):
-        label = PING_LABELS[key]
         entry = gd(interaction.guild_id)
+        label = get_name(entry, key)
         role_id = entry["ping_roles"].get(key)
         if not role_id:
             await _reply_dismiss(interaction, f"No role is bound to **{label}** yet — "
@@ -510,7 +626,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
                 # window where a re-entrant check could fire twice.
                 t[flag] = True
                 save_data(guild_data)
-                await _send_ping(channel, role_id, PING_LABELS[key], rem)
+                await _send_ping(channel, role_id, get_name(entry, key), rem)
 
         for sched_key in SCHEDULE_PING_KEYS:
             role_id = ping_roles.get(sched_key)
@@ -526,7 +642,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
             if occ_dict.get(sched_key) != occ_id and 0 < rem <= window_secs:
                 occ_dict[sched_key] = occ_id
                 save_data(guild_data)
-                await _send_ping(channel, role_id, PING_LABELS[sched_key], rem)
+                await _send_ping(channel, role_id, get_name(entry, sched_key), rem)
 
 
 async def _send_ping(channel, role_id, label, rem_secs):
@@ -578,7 +694,7 @@ async def refresh_loop():
                 msg = await channel.fetch_message(entry["message_id"])
                 await msg.edit(embed=embed)
             else:
-                msg = await channel.send(embed=embed, view=PresetView())
+                msg = await channel.send(embed=embed, view=PresetView(entry))
                 entry["message_id"] = msg.id
                 save_data(guild_data)
         except discord.NotFound:
@@ -604,9 +720,9 @@ async def before_refresh():
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     # Posted first so it lands above the board (Discord orders by send time).
-    await interaction.channel.send(embed=build_role_embed(), view=RoleButtonView())
+    await interaction.channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
     embed = build_embed(entry)
-    msg = await interaction.channel.send(embed=embed, view=PresetView())
+    msg = await interaction.channel.send(embed=embed, view=PresetView(entry))
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
@@ -682,7 +798,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
     entry = gd(interaction.guild_id)
     entry["ping_roles"][target.value] = role.id
     save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{target.name}** will now ping {role.mention} "
+    await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** will now ping {role.mention} "
                           "15 minutes and 2 minutes before it starts.")
 
 
@@ -693,15 +809,16 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
 async def roles_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
     had = entry["ping_roles"].pop(target.value, None) is not None
+    name = get_name(entry, target.value)
     save_data(guild_data)
-    await _reply_dismiss(interaction, f"Cleared the ping role for **{target.name}**."
-                          if had else f"**{target.name}** had no ping role set.")
+    await _reply_dismiss(interaction, f"Cleared the ping role for **{name}**."
+                          if had else f"**{name}** had no ping role set.")
 
 
 @roles_group.command(name="list", description="Show configured ping roles")
 async def roles_list(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
-    lines = [f"**{label}** — " + (f"<@&{entry['ping_roles'][key]}>" if key in entry["ping_roles"] else "not set")
+    lines = [f"**{get_name(entry, key)}** — " + (f"<@&{entry['ping_roles'][key]}>" if key in entry["ping_roles"] else "not set")
              for key, label in PING_TARGETS]
     await _reply_dismiss(interaction, "\n".join(lines))
 
@@ -709,11 +826,101 @@ async def roles_list(interaction: discord.Interaction):
 @roles_group.command(name="message", description="Post a permanent self-assign button message for the four ping roles")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def roles_message(interaction: discord.Interaction):
-    await interaction.channel.send(embed=build_role_embed(), view=RoleButtonView())
+    entry = gd(interaction.guild_id)
+    await interaction.channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
     await _reply_dismiss(interaction, "Posted.")
 
 
 client.tree.add_command(roles_group)
+
+
+language_group = app_commands.Group(name="language", description="Choose the board/ping language (English or Russian)")
+LANGUAGE_CHOICES = [app_commands.Choice(name="English", value="en"),
+                     app_commands.Choice(name="Russian", value="ru")]
+
+
+@language_group.command(name="set", description="Set the board and ping language for this server")
+@app_commands.describe(language="English or Russian")
+@app_commands.choices(language=LANGUAGE_CHOICES)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def language_set(interaction: discord.Interaction, language: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    entry["language"] = language.value
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"Language set to **{language.name}**. The board updates within "
+                          "15s; run `/setup` again to refresh button labels on a fresh message.")
+
+
+@language_group.command(name="show", description="Show the current board/ping language")
+async def language_show(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    name = "Russian" if entry.get("language") == "ru" else "English"
+    await _reply_dismiss(interaction, f"Current language: **{name}**.")
+
+
+client.tree.add_command(language_group)
+
+
+names_group = app_commands.Group(name="names", description="Set this server's own event/boss names per language")
+
+
+@names_group.command(name="set", description="Set an event/boss's name for a language (e.g. a Russian alias)")
+@app_commands.describe(key="Which event/boss", language="English or Russian", text="The name to display")
+@app_commands.choices(language=LANGUAGE_CHOICES)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def names_set(interaction: discord.Interaction, key: str, language: app_commands.Choice[str], text: str):
+    if key not in DEFAULT_NAMES:
+        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
+        return
+    entry = gd(interaction.guild_id)
+    entry["event_names"].setdefault(key, {})[language.value] = text.strip()[:48]
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** ({language.name}) will now show as "
+                          f"**{text.strip()[:48]}**.")
+
+
+@names_set.autocomplete("key")
+async def names_set_autocomplete(interaction: discord.Interaction, current: str):
+    current = current.lower()
+    return [app_commands.Choice(name=name, value=key) for key, name in DEFAULT_NAMES.items()
+            if current in key.lower() or current in name.lower()][:25]
+
+
+@names_group.command(name="clear", description="Reset an event/boss's name for a language back to default")
+@app_commands.describe(key="Which event/boss", language="English or Russian")
+@app_commands.choices(language=LANGUAGE_CHOICES)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def names_clear(interaction: discord.Interaction, key: str, language: app_commands.Choice[str]):
+    if key not in DEFAULT_NAMES:
+        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
+        return
+    entry = gd(interaction.guild_id)
+    had = entry["event_names"].get(key, {}).pop(language.value, None) is not None
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"Reset **{DEFAULT_NAMES[key]}** ({language.name}) to default."
+                          if had else f"**{DEFAULT_NAMES[key]}** ({language.name}) had no override set.")
+
+
+@names_clear.autocomplete("key")
+async def names_clear_autocomplete(interaction: discord.Interaction, current: str):
+    return await names_set_autocomplete(interaction, current)
+
+
+@names_group.command(name="list", description="Show all event/boss names in both languages")
+async def names_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    lines = []
+    for key, default_en in sorted(DEFAULT_NAMES.items(), key=lambda kv: kv[1]):
+        overrides = entry["event_names"].get(key, {})
+        en = overrides.get("en", default_en)
+        ru = overrides.get("ru", default_en)
+        lines.append(f"**{default_en}** — EN: {en} · RU: {ru}")
+    # Discord messages cap at 2000 chars / embed descriptions at 4096; chunk defensively.
+    text = "\n".join(lines)
+    await _reply_dismiss(interaction, text[:3900] + ("\n…" if len(text) > 3900 else ""))
+
+
+client.tree.add_command(names_group)
 
 
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
