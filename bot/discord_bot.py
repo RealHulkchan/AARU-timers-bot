@@ -177,7 +177,12 @@ def dur_label(h):
 
 
 # ── Persistence (per-guild board channel/message + custom timers) ──────────────
-DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_timers.json")
+# DATA_DIR should point at a mounted Railway Volume in production — the container's
+# own filesystem is wiped on every redeploy, which would otherwise lose the board
+# binding and any running custom timers on every push. Falls back to the script's
+# own folder for local runs.
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
+DATA_PATH = os.path.join(DATA_DIR, "bot_timers.json")
 
 
 def load_data():
