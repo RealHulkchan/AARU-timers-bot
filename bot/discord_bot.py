@@ -95,10 +95,11 @@ DAILY_INGAME_EVENTS = [
 
 EventOcc = namedtuple("EventOcc", "key icon name time_str dt end")
 
-# Primary = weekly bosses/sieges (highest priority, own section on the board).
-# Secondary = everything clock-driven (CR/GR/SGCR/Hiram Rift/Red Dragon/Skyfin/
-# Kadum/Hiram City/Daily Reset) — same events, just a lower-priority section.
-PRIMARY_KEYS = frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in day)
+# Primary = bosses/PVP (highest priority, own section on the board): every weekly
+# boss/siege plus JMG (also a boss, just on the 4h in-game-clock cycle).
+# Secondary = the remaining clock-driven dailies (GR/SGCR/Hiram Rift/Red Dragon/
+# Skyfin/Kadum/Hiram City/Daily Reset) — same events, lower-priority section.
+PRIMARY_KEYS = frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in day) | {"jmg"}
 
 
 def _parse_span(d, t):
@@ -247,7 +248,7 @@ def build_embed(entry):
         parts.append("## ⏱️ Custom Timers\n" + "\n\n".join(custom_lines))
 
     if active_primary or up_primary:
-        section = ["## ⚔️ Bosses & Sieges"]
+        section = ["## ⚔️ Bosses & PVP"]
         if active_primary:
             section.append("**Live now**\n" + "\n\n".join(_live_line(o, now) for o in active_primary))
         if up_primary:
