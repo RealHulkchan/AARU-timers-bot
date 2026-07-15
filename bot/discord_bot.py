@@ -264,10 +264,10 @@ NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
 # just the defaults. English defaults are pulled straight from the schedule data
 # (one source of truth for spelling) plus the four custom-timer/ping-only targets.
 # DEFAULT_NAMES_RU is a provided community translation (not guessed) covering the
-# weekly bosses/sieges, the fixed daily events, and most in-game-clock dailies;
-# /names set still overrides either on a per-guild basis, and still covers
-# anything not listed here (Normal CR, and the guild_boss/morpheus/rangora/halcy
-# ping-only targets, have no built-in Russian name yet).
+# weekly bosses/sieges, the fixed daily events, most in-game-clock dailies, and
+# two of the four ping-only targets; /names set still overrides either on a
+# per-guild basis, and still covers anything not listed here (Normal CR, and the
+# morpheus/halcy ping-only targets, have no built-in Russian name yet).
 def _collect_default_names():
     names = {}
     for day in WEEKLY_SCHEDULE.values():
@@ -304,6 +304,8 @@ DEFAULT_NAMES_RU = {
     "sgcr": "Кровавый разлом (Анталон)",
     "hiram_rift": "Фантомы",
     "gr": "Призрачный разлом",
+    "rangora": "Марли",
+    "guild_boss": "Ги босса",
 }
 
 # Static board/UI chrome — these ARE translated up front (ordinary interface text,
