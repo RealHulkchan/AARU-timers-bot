@@ -685,12 +685,20 @@ async def _check_pings(guild_id, entry, channel, now_ts):
 
 async def _send_ping(channel, role_id, label, window_label):
     try:
-        await channel.send(f"<@&{role_id}> **{label}** in {window_label}!",
-                            allowed_mentions=discord.AllowedMentions(roles=True))
-        return True
+        msg = await channel.send(f"<@&{role_id}> **{label}** in {window_label}!",
+                                  allowed_mentions=discord.AllowedMentions(roles=True))
     except Exception as e:
         print(f"[PING] {label} failed: {e}")
         return False
+
+    async def _delete_later():
+        await asyncio.sleep(3600)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    asyncio.create_task(_delete_later())
+    return True
 
 
 def _unbind(guild_id, entry, reason):
