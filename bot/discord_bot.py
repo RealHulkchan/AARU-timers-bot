@@ -24,7 +24,16 @@ Commands (all slash commands):
     /names clear key language        - reset an event/boss's name back to default
     /names list                      - show every event/boss's name in both languages
     /events                          - one-off snapshot (ephemeral, auto-dismisses)
-    /clear                           - delete this bot's own messages in the channel (Manage Messages)
+    /clear                           - delete this bot's own messages in the channel
+    /permissions set target level    - set the permission level a command/button needs on this server
+    /permissions clear target        - reset a command/button's level back to default
+    /permissions list                - show every command/button's current level
+
+Permission levels are per-guild and configurable — see /permissions above.
+Defaults: preset buttons = everyone; everything else (/setup, /timer,
+/roles, /language set, /names set|clear, /clear) = Manage Messages.
+/permissions itself always requires Manage Server, hardcoded, so it can't
+be used to lower its own bar.
 """
 
 import os
@@ -231,7 +240,63 @@ def gd(guild_id):
     entry.setdefault("pinged_occ_5m", {})
     entry.setdefault("language", "en")
     entry.setdefault("event_names", {})   # {event_key: {"en": "...", "ru": "..."}}
+    entry.setdefault("permissions", {})   # {target: "everyone"|"manage_messages"|"manage_server"}
     return entry
+
+
+# Per-guild-overridable permission levels for admin-facing commands/buttons.
+# "everyone" = no restriction, "manage_messages"/"manage_server" = that Discord
+# permission required. Defaults here match this server's current setup; any
+# guild can override any target independently via /permissions set.
+PERMISSION_TARGETS = [
+    ("preset_timers", "+ Guild Boss/Morph/Rangora buttons"),
+    ("timer", "/timer start, list, cancel"),
+    ("setup", "/setup"),
+    ("roles", "/roles set, clear, message"),
+    ("language", "/language set"),
+    ("names", "/names set, clear"),
+    ("clear_cmd", "/clear"),
+]
+DEFAULT_PERMISSION_LEVELS = {
+    "preset_timers": "everyone",
+    "timer": "manage_messages",
+    "setup": "manage_messages",
+    "roles": "manage_messages",
+    "language": "manage_messages",
+    "names": "manage_messages",
+    "clear_cmd": "manage_messages",
+}
+PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "manage_messages": "Manage Messages",
+                            "manage_server": "Manage Server"}
+
+
+def _permission_level(entry, target):
+    return entry["permissions"].get(target, DEFAULT_PERMISSION_LEVELS[target])
+
+
+def _has_permission_level(member: discord.Member, level: str) -> bool:
+    if level == "everyone":
+        return True
+    if level == "manage_messages":
+        return member.guild_permissions.manage_messages
+    if level == "manage_server":
+        return member.guild_permissions.manage_guild
+    return False
+
+
+def require_permission(target):
+    """App-command check that reads the guild's configured level for `target`
+    (falling back to its default) instead of a level fixed at decoration time —
+    this is what makes /permissions set actually change enforcement per guild."""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        entry = gd(interaction.guild_id)
+        level = _permission_level(entry, target)
+        if _has_permission_level(interaction.user, level):
+            return True
+        raise app_commands.CheckFailure(
+            f"`[403 Forbidden]` This requires the **{PERMISSION_LEVEL_LABELS[level]}** "
+            "permission on this server.")
+    return app_commands.check(predicate)
 
 
 # refresh_loop iterates guild_data entries directly (not through gd()), so a guild
@@ -517,15 +582,16 @@ class PresetView(discord.ui.View):
                 child.label = f"+ {get_name(entry, key)}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Runs before any button in this view — starting a preset timer affects
-        the shared board for everyone, so it's gated on Manage Messages, same as
-        every other admin command/button in this bot. RoleButtonView (self-assign
-        ping roles) is untouched and stays open to all members."""
-        if not interaction.user.guild_permissions.manage_messages:
-            await _reply_dismiss(interaction, "Starting a preset timer requires the "
-                                  "**Manage Messages** permission.")
-            return False
-        return True
+        """Runs before any button in this view. Level is per-guild configurable
+        via /permissions set target:preset_timers — defaults to "everyone".
+        RoleButtonView (self-assign ping roles) is untouched and stays open."""
+        entry = gd(interaction.guild_id)
+        level = _permission_level(entry, "preset_timers")
+        if _has_permission_level(interaction.user, level):
+            return True
+        await _reply_dismiss(interaction, f"`[403 Forbidden]` Starting a preset timer requires "
+                              f"the **{PERMISSION_LEVEL_LABELS[level]}** permission.")
+        return False
 
     async def _start(self, interaction, name, hours):
         entry = gd(interaction.guild_id)
@@ -677,7 +743,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         perms = ", ".join(p.replace("_", " ").title() for p in error.missing_permissions)
         msg = f"`[403 Missing Permissions]` You need the **{perms}** permission to use this command."
     elif isinstance(error, app_commands.CheckFailure):
-        msg = "`[403 Forbidden]` You don't have permission to use this command."
+        # require_permission() raises CheckFailure with a specific message already
+        # attached; fall back to a generic one for any other check failure.
+        msg = str(error) or "`[403 Forbidden]` You don't have permission to use this command."
     elif isinstance(error, app_commands.CommandOnCooldown):
         msg = f"`[429 Cooldown]` Slow down — try again in {error.retry_after:.1f}s."
     else:
@@ -856,7 +924,7 @@ async def before_refresh():
 
 # ── Slash commands ───────────────────────────────────────────────────────────────
 @client.tree.command(name="setup", description="Post the live ArcheAge timer board in this channel")
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("setup")
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     # Posted first so it lands above the board (Discord orders by send time).
@@ -874,6 +942,7 @@ timer_group = app_commands.Group(name="timer", description="Custom countdown tim
 
 @timer_group.command(name="start", description="Start a custom countdown timer")
 @app_commands.describe(name="Timer name (e.g. Kraken)", hours="Duration in hours (e.g. 2 or 1.5)")
+@require_permission("timer")
 async def timer_start(interaction: discord.Interaction, name: str, hours: float):
     if hours <= 0 or hours > 72:
         await _reply_dismiss(interaction, "Hours must be between 0 and 72.")
@@ -905,6 +974,7 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
 
 
 @timer_group.command(name="list", description="List running custom timers")
+@require_permission("timer")
 async def timer_list(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     if not entry["custom_timers"]:
@@ -918,6 +988,7 @@ async def timer_list(interaction: discord.Interaction):
 
 @timer_group.command(name="cancel", description="Cancel a running custom timer")
 @app_commands.describe(name="Name of the timer to cancel")
+@require_permission("timer")
 async def timer_cancel(interaction: discord.Interaction, name: str):
     entry = gd(interaction.guild_id)
     before = len(entry["custom_timers"])
@@ -945,7 +1016,7 @@ roles_group = app_commands.Group(name="roles", description="Configure which role
 @roles_group.command(name="set", description="Ping a role 15 minutes and 5 minutes before this timer starts")
 @app_commands.describe(target="Which timer/event", role="Role to ping")
 @app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("roles")
 async def roles_set(interaction: discord.Interaction, target: app_commands.Choice[str], role: discord.Role):
     entry = gd(interaction.guild_id)
     entry["ping_roles"][target.value] = role.id
@@ -957,7 +1028,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
 @roles_group.command(name="clear", description="Stop pinging a role for this timer")
 @app_commands.describe(target="Which timer/event")
 @app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("roles")
 async def roles_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
     had = entry["ping_roles"].pop(target.value, None) is not None
@@ -976,7 +1047,7 @@ async def roles_list(interaction: discord.Interaction):
 
 
 @roles_group.command(name="message", description="Post a permanent self-assign button message for the four ping roles")
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("roles")
 async def roles_message(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     await interaction.channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
@@ -994,7 +1065,7 @@ LANGUAGE_CHOICES = [app_commands.Choice(name="English", value="en"),
 @language_group.command(name="set", description="Set the board and ping language for this server")
 @app_commands.describe(language="English or Russian")
 @app_commands.choices(language=LANGUAGE_CHOICES)
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("language")
 async def language_set(interaction: discord.Interaction, language: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
     entry["language"] = language.value
@@ -1019,7 +1090,7 @@ names_group = app_commands.Group(name="names", description="Set this server's ow
 @names_group.command(name="set", description="Set an event/boss's name for a language (e.g. a Russian alias)")
 @app_commands.describe(key="Which event/boss", language="English or Russian", text="The name to display")
 @app_commands.choices(language=LANGUAGE_CHOICES)
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("names")
 async def names_set(interaction: discord.Interaction, key: str, language: app_commands.Choice[str], text: str):
     if key not in DEFAULT_NAMES:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
@@ -1041,7 +1112,7 @@ async def names_set_autocomplete(interaction: discord.Interaction, current: str)
 @names_group.command(name="clear", description="Reset an event/boss's name for a language back to default")
 @app_commands.describe(key="Which event/boss", language="English or Russian")
 @app_commands.choices(language=LANGUAGE_CHOICES)
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("names")
 async def names_clear(interaction: discord.Interaction, key: str, language: app_commands.Choice[str]):
     if key not in DEFAULT_NAMES:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
@@ -1075,6 +1146,54 @@ async def names_list(interaction: discord.Interaction):
 client.tree.add_command(names_group)
 
 
+permissions_group = app_commands.Group(name="permissions",
+                                        description="Configure which permission level each command/button needs on this server")
+PERMISSION_LEVEL_CHOICES = [app_commands.Choice(name=label, value=key)
+                            for key, label in PERMISSION_LEVEL_LABELS.items()]
+PERMISSION_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PERMISSION_TARGETS]
+
+
+@permissions_group.command(name="set", description="Set the permission level required for a command/button")
+@app_commands.describe(target="Which command/button", level="Required permission level")
+@app_commands.choices(target=PERMISSION_TARGET_CHOICES, level=PERMISSION_LEVEL_CHOICES)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def permissions_set(interaction: discord.Interaction, target: app_commands.Choice[str],
+                           level: app_commands.Choice[str]):
+    # Hardcoded Manage Server (not require_permission) — this command controls
+    # every other permission gate, so its own gate can't be the thing it lowers.
+    entry = gd(interaction.guild_id)
+    entry["permissions"][target.value] = level.value
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{target.name}** now requires **{level.name}** on this server.")
+
+
+@permissions_group.command(name="clear", description="Reset a command/button's permission level back to default")
+@app_commands.describe(target="Which command/button")
+@app_commands.choices(target=PERMISSION_TARGET_CHOICES)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def permissions_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    had = entry["permissions"].pop(target.value, None) is not None
+    save_data(guild_data)
+    default_label = PERMISSION_LEVEL_LABELS[DEFAULT_PERMISSION_LEVELS[target.value]]
+    await _reply_dismiss(interaction, f"**{target.name}** reset to the default (**{default_label}**)."
+                          if had else f"**{target.name}** was already at its default.")
+
+
+@permissions_group.command(name="list", description="Show the current permission level for every command/button")
+async def permissions_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    lines = []
+    for key, label in PERMISSION_TARGETS:
+        level = _permission_level(entry, key)
+        overridden = " *(overridden)*" if key in entry["permissions"] else ""
+        lines.append(f"**{label}** — {PERMISSION_LEVEL_LABELS[level]}{overridden}")
+    await _reply_dismiss(interaction, "\n".join(lines))
+
+
+client.tree.add_command(permissions_group)
+
+
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
 async def events_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
@@ -1083,7 +1202,7 @@ async def events_cmd(interaction: discord.Interaction):
 
 
 @client.tree.command(name="clear", description="Delete this bot's own messages in this channel")
-@app_commands.checks.has_permissions(manage_messages=True)
+@require_permission("clear_cmd")
 async def clear_cmd(interaction: discord.Interaction):
     # Only ever touches messages this bot itself sent (board/ping/confirmation
     # leftovers) — never other users' messages, so it's safe without a confirm
