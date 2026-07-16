@@ -28,6 +28,9 @@ Commands (all slash commands):
     /permissions set target level    - set the permission level a command/button needs on this server
     /permissions clear target        - reset a command/button's level back to default
     /permissions list                - show every command/button's current level
+    /buttons hide button             - hide a preset/role button on this server (repost to apply)
+    /buttons show button             - un-hide it
+    /buttons list                    - show which buttons are hidden here
 
 Permission levels are per-guild and configurable — see /permissions above.
 Defaults: preset buttons = everyone; everything else (/setup, /timer,
@@ -241,6 +244,7 @@ def gd(guild_id):
     entry.setdefault("language", "en")
     entry.setdefault("event_names", {})   # {event_key: {"en": "...", "ru": "..."}}
     entry.setdefault("permissions", {})   # {target: "everyone"|"manage_messages"|"manage_server"}
+    entry.setdefault("hidden_buttons", [])   # list of button custom_ids not shown on this guild's messages
     return entry
 
 
@@ -256,6 +260,7 @@ PERMISSION_TARGETS = [
     ("language", "/language set"),
     ("names", "/names set, clear"),
     ("clear_cmd", "/clear"),
+    ("buttons", "/buttons hide, show"),
 ]
 DEFAULT_PERMISSION_LEVELS = {
     "preset_timers": "everyone",
@@ -265,6 +270,7 @@ DEFAULT_PERMISSION_LEVELS = {
     "language": "manage_messages",
     "names": "manage_messages",
     "clear_cmd": "manage_messages",
+    "buttons": "manage_messages",
 }
 PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "manage_messages": "Manage Messages",
                             "manage_server": "Manage Server"}
@@ -575,9 +581,14 @@ PRESET_BUTTON_KEYS = {"preset_guild_boss": "guild_boss", "preset_morph": "morphe
 class PresetView(discord.ui.View):
     def __init__(self, entry=None):
         super().__init__(timeout=None)
-        entry = entry or {"language": "en", "event_names": {}}
-        for child in self.children:
-            key = PRESET_BUTTON_KEYS.get(getattr(child, "custom_id", None))
+        entry = entry or {"language": "en", "event_names": {}, "hidden_buttons": []}
+        hidden = entry.get("hidden_buttons", [])
+        for child in list(self.children):
+            custom_id = getattr(child, "custom_id", None)
+            if custom_id in hidden:
+                self.remove_item(child)
+                continue
+            key = PRESET_BUTTON_KEYS.get(custom_id)
             if key:
                 child.label = f"+ {get_name(entry, key)}"
 
@@ -647,9 +658,14 @@ ROLE_BUTTON_KEYS = {"role_jmg": "jmg", "role_rangora": "rangora", "role_morpheus
 class RoleButtonView(discord.ui.View):
     def __init__(self, entry=None):
         super().__init__(timeout=None)
-        entry = entry or {"language": "en", "event_names": {}}
-        for child in self.children:
-            key = ROLE_BUTTON_KEYS.get(getattr(child, "custom_id", None))
+        entry = entry or {"language": "en", "event_names": {}, "hidden_buttons": []}
+        hidden = entry.get("hidden_buttons", [])
+        for child in list(self.children):
+            custom_id = getattr(child, "custom_id", None)
+            if custom_id in hidden:
+                self.remove_item(child)
+                continue
+            key = ROLE_BUTTON_KEYS.get(custom_id)
             if key:
                 child.label = get_name(entry, key)
 
@@ -703,6 +719,15 @@ class RoleButtonView(discord.ui.View):
     @discord.ui.button(label="Halcy", style=discord.ButtonStyle.secondary, custom_id="role_halcy")
     async def halcy_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle(interaction, "halcy")
+
+
+# Every hideable button, custom_id -> a static label for the /buttons command's
+# choices (can't use get_name() here since choices are fixed at registration
+# time, not per-invocation/per-language).
+BUTTON_REGISTRY = (
+    [(cid, f"Preset: + {DEFAULT_NAMES.get(key, key)}") for cid, key in PRESET_BUTTON_KEYS.items()]
+    + [(cid, f"Role: {DEFAULT_NAMES.get(key, key)}") for cid, key in ROLE_BUTTON_KEYS.items()]
+)
 
 
 # ── Bot ──────────────────────────────────────────────────────────────────────────
@@ -1192,6 +1217,49 @@ async def permissions_list(interaction: discord.Interaction):
 
 
 client.tree.add_command(permissions_group)
+
+
+buttons_group = app_commands.Group(name="buttons", description="Hide/show individual buttons on this server's board and role message")
+BUTTON_CHOICES = [app_commands.Choice(name=label, value=cid) for cid, label in BUTTON_REGISTRY]
+
+
+@buttons_group.command(name="hide", description="Hide a button on this server (repost via /setup or /roles message to apply)")
+@app_commands.describe(button="Which button")
+@app_commands.choices(button=BUTTON_CHOICES)
+@require_permission("buttons")
+async def buttons_hide(interaction: discord.Interaction, button: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    if button.value not in entry["hidden_buttons"]:
+        entry["hidden_buttons"].append(button.value)
+        save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{button.name}** hidden on this server. Run `/setup` "
+                          "(or `/roles message` for role buttons) again to repost without it.")
+
+
+@buttons_group.command(name="show", description="Un-hide a button on this server")
+@app_commands.describe(button="Which button")
+@app_commands.choices(button=BUTTON_CHOICES)
+@require_permission("buttons")
+async def buttons_show(interaction: discord.Interaction, button: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    had = button.value in entry["hidden_buttons"]
+    if had:
+        entry["hidden_buttons"].remove(button.value)
+        save_data(guild_data)
+    await _reply_dismiss(interaction, (f"**{button.name}** will show again — run `/setup` "
+                          "(or `/roles message`) again to repost with it.") if had
+                          else f"**{button.name}** wasn't hidden.")
+
+
+@buttons_group.command(name="list", description="Show which buttons are hidden on this server")
+async def buttons_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    lines = [f"**{label}** — {'hidden' if cid in entry['hidden_buttons'] else 'shown'}"
+             for cid, label in BUTTON_REGISTRY]
+    await _reply_dismiss(interaction, "\n".join(lines))
+
+
+client.tree.add_command(buttons_group)
 
 
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
