@@ -262,6 +262,27 @@ PERMISSION_TARGETS = [
     ("clear_cmd", "/clear"),
     ("buttons", "/buttons hide, show"),
 ]
+PERMISSION_TARGET_DESCRIPTIONS = {
+    "preset_timers": "The buttons under the board that start a preset Guild Boss "
+                      "(2h), Morpheus (12h), or Rangora (12h) countdown with one click.",
+    "timer": "/timer start — start any custom countdown under any name/duration. "
+             "/timer list — see what's running. /timer cancel — stop one.",
+    "setup": "Posts (or moves) the live timer board and the self-assign role "
+              "message into the current channel. Doesn't delete an existing board "
+              "elsewhere — use /clear for that.",
+    "roles": "/roles set — bind a Discord role to ping 15m and 5m before a timer/"
+             "event starts. /roles clear — unbind one. /roles message — repost "
+             "just the self-assign role buttons without touching the board.",
+    "language": "/language set — switches the board, pings, and button labels "
+                "between English and Russian for this server.",
+    "names": "/names set — give an event/boss its own name in a language (e.g. "
+             "a nickname like \"Halcy\"). /names clear — reset one back to default.",
+    "clear_cmd": "Deletes this bot's own messages in the current channel (old "
+                 "board posts, ping alerts, leftover confirmations) — never "
+                 "other users' messages.",
+    "buttons": "/buttons hide/show — controls which individual preset/role "
+               "buttons appear on this server's board and role message.",
+}
 DEFAULT_PERMISSION_LEVELS = {
     "preset_timers": "everyone",
     "timer": "manage_messages",
@@ -1179,7 +1200,8 @@ PERMISSION_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key,
 
 
 @permissions_group.command(name="set", description="Set the permission level required for a command/button")
-@app_commands.describe(target="Which command/button", level="Required permission level")
+@app_commands.describe(target="Which command/button (see /permissions list for what each one does)",
+                        level="Required permission level")
 @app_commands.choices(target=PERMISSION_TARGET_CHOICES, level=PERMISSION_LEVEL_CHOICES)
 @app_commands.checks.has_permissions(manage_guild=True)
 async def permissions_set(interaction: discord.Interaction, target: app_commands.Choice[str],
@@ -1205,15 +1227,17 @@ async def permissions_clear(interaction: discord.Interaction, target: app_comman
                           if had else f"**{target.name}** was already at its default.")
 
 
-@permissions_group.command(name="list", description="Show the current permission level for every command/button")
+@permissions_group.command(name="list", description="Show the current permission level and what each command/button does")
 async def permissions_list(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     lines = []
     for key, label in PERMISSION_TARGETS:
         level = _permission_level(entry, key)
         overridden = " *(overridden)*" if key in entry["permissions"] else ""
-        lines.append(f"**{label}** — {PERMISSION_LEVEL_LABELS[level]}{overridden}")
-    await _reply_dismiss(interaction, "\n".join(lines))
+        lines.append(f"**{label}** — {PERMISSION_LEVEL_LABELS[level]}{overridden}\n"
+                      f"> {PERMISSION_TARGET_DESCRIPTIONS[key]}")
+    text = "\n\n".join(lines)
+    await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
 
 
 client.tree.add_command(permissions_group)
