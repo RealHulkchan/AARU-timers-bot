@@ -3,7 +3,7 @@ ArcheAge Timers — Discord bot
 Same weekly/daily event schedule and boss-timer logic as the desktop widget
 (archeage_translator_easy_v2.py), reimplemented standalone so it doesn't pull in
 tkinter/EasyOCR/torch. Posts one embed per configured channel and edits it in
-place every 2s (like a BDO-style boss-timer bot) instead of spamming messages.
+place every 5s (like a BDO-style boss-timer bot) instead of spamming messages.
 
 Setup:
     pip install -r requirements_bot.txt
@@ -411,7 +411,7 @@ UI = {
         "daily_cycles": "🕐 Upcoming Events",
         "live_now": "**Live now**",
         "upcoming": "**Upcoming**",
-        "footer": "Updates every 2s",
+        "footer": "Updates every 5s",
         "opt_in_title": "🔔 Opt Into Timer Pings",
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
                          "15 minutes and 5 minutes before that timer starts.\n\n"
@@ -425,7 +425,7 @@ UI = {
         "daily_cycles": "🕐 Ближайшие события",
         "live_now": "**Сейчас идёт**",
         "upcoming": "**Скоро**",
-        "footer": "Обновляется каждые 2с",
+        "footer": "Обновляется каждые 5с",
         "opt_in_title": "🔔 Подписка на уведомления",
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
                          "уведомление за 15 и за 5 минут до начала.\n\n"
@@ -644,7 +644,7 @@ class PresetView(discord.ui.View):
         await _reply_dismiss(
             interaction,
             f"Timer started: **{display_name}** — {dur_label(hours)}. It'll appear on the "
-            "board within 2s.")
+            "board within 5s.")
 
     @discord.ui.button(label="+ Guild Boss", style=discord.ButtonStyle.secondary,
                         custom_id="preset_guild_boss")
@@ -907,7 +907,7 @@ async def _resolve_channel(guild_id, entry):
 
 @tasks.loop(seconds=1)
 async def ping_loop():
-    """Separate from refresh_loop (which only edits the board every 2s) so
+    """Separate from refresh_loop (which only edits the board every 5s) so
     alerts fire within ~1s of the 15m/5m mark instead of drifting late."""
     now_ts = datetime.now(MOSCOW).timestamp()
     for guild_id, entry in list(guild_data.items()):
@@ -924,7 +924,7 @@ async def before_ping():
     await client.wait_until_ready()
 
 
-@tasks.loop(seconds=2)
+@tasks.loop(seconds=5)
 async def refresh_loop():
     expired_any = False
     for guild_id, entry in list(guild_data.items()):
@@ -953,7 +953,7 @@ async def refresh_loop():
                 save_data(guild_data)
         except discord.NotFound:
             # Someone deleted the board message by hand — stop chasing it instead
-            # of silently respawning a new one every 2s; /setup rebinds cleanly.
+            # of silently respawning a new one every 5s; /setup rebinds cleanly.
             _unbind(guild_id, entry, "board message was deleted")
         except discord.Forbidden:
             _unbind(guild_id, entry, "lost permission to post in the board channel")
@@ -980,7 +980,7 @@ async def setup_cmd(interaction: discord.Interaction):
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
-    await _reply_dismiss(interaction, "Timer board posted — it'll update every 2s.")
+    await _reply_dismiss(interaction, "Timer board posted — it'll update every 5s.")
 
 
 timer_group = app_commands.Group(name="timer", description="Custom countdown timers (guild boss respawns etc.)")
@@ -1012,11 +1012,11 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
     save_data(guild_data)
     display_name = _custom_timer_name(entry, {"name": name})
     # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
-    # the timer itself shows up under Guild Timers on the live board within 2s.
+    # the timer itself shows up under Guild Timers on the live board within 5s.
     await _reply_dismiss(
         interaction,
         f"Timer started: **{display_name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
-        "It'll appear on the live board within 2s.")
+        "It'll appear on the live board within 5s.")
 
 
 @timer_group.command(name="list", description="List running custom timers")
@@ -1117,7 +1117,7 @@ async def language_set(interaction: discord.Interaction, language: app_commands.
     entry["language"] = language.value
     save_data(guild_data)
     await _reply_dismiss(interaction, f"Language set to **{language.name}**. The board updates within "
-                          "2s; run `/setup` again to refresh button labels on a fresh message.")
+                          "5s; run `/setup` again to refresh button labels on a fresh message.")
 
 
 @language_group.command(name="show", description="Show the current board/ping language")
