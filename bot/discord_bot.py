@@ -757,7 +757,13 @@ intents = discord.Intents.default()
 
 class TimersBot(discord.Client):
     def __init__(self):
-        super().__init__(intents=intents)
+        # Without a cap, discord.py blocks a request indefinitely through
+        # however many 429 retries it takes (this is what the repeating
+        # "We are being rate limited... Retrying in Xs" warnings were —
+        # the board-edit call sitting in a growing backoff loop). Capping it
+        # means a congested board edit gives up quickly instead of occupying
+        # request capacity that ping_loop's alerts need more urgently.
+        super().__init__(intents=intents, max_ratelimit_timeout=8)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -957,6 +963,11 @@ async def refresh_loop():
             _unbind(guild_id, entry, "board message was deleted")
         except discord.Forbidden:
             _unbind(guild_id, entry, "lost permission to post in the board channel")
+        except discord.RateLimited:
+            # max_ratelimit_timeout makes this fire instead of blocking through a
+            # long retry — just skip this tick, the next one is only 5s away, and
+            # skipping fast keeps request capacity free for ping_loop's alerts.
+            print(f"[TICK] guild {guild_id}: rate limited, skipping this tick")
         except Exception as e:
             print(f"[TICK] guild {guild_id} failed: {e}")
     if expired_any:
