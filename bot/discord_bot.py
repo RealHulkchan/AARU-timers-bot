@@ -15,7 +15,8 @@ Commands (all slash commands):
     /timer start name hours          - start a custom countdown (guild boss etc.)
     /timer list                      - list running custom timers
     /timer cancel name               - cancel a running custom timer
-    /roles set target role           - ping `role` 15m AND 5m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy starts
+    /roles set target role           - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy/
+                                        Tokens starts (15m+5m), or Prairie/Invasion starts (30m+5m)
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
     /roles message                   - post a permanent self-assign button message for the 4 roles
@@ -241,6 +242,7 @@ def gd(guild_id):
     entry.setdefault("ping_roles", {})
     entry.setdefault("pinged_occ_15m", {})
     entry.setdefault("pinged_occ_5m", {})
+    entry.setdefault("pinged_occ_30m", {})   # Prairie/Invasion use 30m+5m instead of 15m+5m
     entry.setdefault("language", "en")
     entry.setdefault("event_names", {})   # {event_key: {"en": "...", "ru": "..."}}
     entry.setdefault("permissions", {})   # {target: "everyone"|"manage_messages"|"manage_server"}
@@ -343,9 +345,11 @@ for _gid in list(guild_data.keys()):
 # its own schedule entry.
 PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
                 ("morpheus", "Morpheus"), ("rangora", "Rangora"),
-                ("skyfin", "Skyfin"), ("halcy", "Halcy")]
+                ("skyfin", "Skyfin"), ("halcy", "Halcy"),
+                ("prairie", "Prairie"), ("invasion", "Invasion"),
+                ("tokens", "Tokens")]
 PING_LABELS = dict(PING_TARGETS)
-SCHEDULE_PING_KEYS = {"jmg", "skyfin", "halcy"}
+SCHEDULE_PING_KEYS = {"jmg", "skyfin", "halcy", "prairie", "invasion"}
 SCHEDULE_KEY_ALIAS = {"halcy": "golden_plains"}   # ping target key -> actual schedule event key
 NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
                      if key not in SCHEDULE_PING_KEYS}
@@ -374,7 +378,7 @@ def _collect_default_names():
 
 DEFAULT_NAMES = _collect_default_names()
 DEFAULT_NAMES.update({"guild_boss": "Guild Boss", "morpheus": "Morpheus",
-                       "rangora": "Rangora", "halcy": "Halcy"})
+                       "rangora": "Rangora", "halcy": "Halcy", "tokens": "Tokens"})
 
 DEFAULT_NAMES_RU = {
     "kraken": "Кракен",
@@ -414,7 +418,8 @@ UI = {
         "footer": "Updates every 5s",
         "opt_in_title": "🔔 Opt Into Timer Pings",
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
-                         "15 minutes and 5 minutes before that timer starts.\n\n"
+                         "15 and 5 minutes before that timer starts (30 and 5 for "
+                         "Prairie/Invasion).\n\n"
                          "*An admin binds each button to a role with `/roles set`.*"),
     },
     "ru": {
@@ -428,7 +433,8 @@ UI = {
         "footer": "Обновляется каждые 5с",
         "opt_in_title": "🔔 Подписка на уведомления",
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
-                         "уведомление за 15 и за 5 минут до начала.\n\n"
+                         "уведомление за 15 и за 5 минут до начала (за 30 и за 5 минут "
+                         "для Prairie/Invasion).\n\n"
                          "*Админ привязывает роль к кнопке командой `/roles set`.*"),
     },
 }
@@ -670,7 +676,8 @@ def build_role_embed(entry):
 
 
 ROLE_BUTTON_KEYS = {"role_jmg": "jmg", "role_rangora": "rangora", "role_morpheus": "morpheus",
-                     "role_guild_boss": "guild_boss", "role_skyfin": "skyfin", "role_halcy": "halcy"}
+                     "role_guild_boss": "guild_boss", "role_skyfin": "skyfin", "role_halcy": "halcy",
+                     "role_prairie": "prairie", "role_invasion": "invasion", "role_tokens": "tokens"}
 
 
 # Self-assign buttons for the ping-role targets (posted once via /roles message,
@@ -710,7 +717,7 @@ class RoleButtonView(discord.ui.View):
             else:
                 await member.add_roles(role, reason="Self-assigned via timer role button")
                 await _reply_dismiss(interaction, f"Gave you {role.mention} — you'll be pinged "
-                                      f"15 minutes and 5 minutes before **{label}** starts.")
+                                      f"{_alert_timing_text(key)} before **{label}** starts.")
         except discord.Forbidden:
             await _reply_dismiss(interaction, "I can't manage that role — check I have "
                                   "**Manage Roles** and my role is positioned above it.")
@@ -740,6 +747,18 @@ class RoleButtonView(discord.ui.View):
     @discord.ui.button(label="Halcy", style=discord.ButtonStyle.secondary, custom_id="role_halcy")
     async def halcy_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle(interaction, "halcy")
+
+    @discord.ui.button(label="Prairie", style=discord.ButtonStyle.secondary, custom_id="role_prairie")
+    async def prairie_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "prairie")
+
+    @discord.ui.button(label="Invasion", style=discord.ButtonStyle.secondary, custom_id="role_invasion")
+    async def invasion_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "invasion")
+
+    @discord.ui.button(label="Tokens", style=discord.ButtonStyle.secondary, custom_id="role_tokens")
+    async def tokens_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "tokens")
 
 
 # Every hideable button, custom_id -> a static label for the /buttons command's
@@ -820,26 +839,44 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 # actual remaining time at the moment the tick happened to land — even with
 # ping_loop's 1s cadence that's never exactly e.g. 900.000s, so showing the raw
 # number would read as a random/buggy value instead of the clean tier name.
+# Custom-timer alerts (Guild Boss/Morpheus/Rangora/Tokens) always use these two
+# tiers. Schedule-target alerts default to the same tiers too, EXCEPT Prairie
+# and Invasion which use SCHEDULE_WINDOW_OVERRIDES (30m+5m) instead — per-target
+# so any future one-off tier doesn't need touching every other target.
 PING_WINDOWS = [
     (15 * 60, "pinged_15m", "pinged_occ_15m", "15m"),
     (5 * 60,  "pinged_5m",  "pinged_occ_5m",  "5m"),
 ]
+SCHEDULE_DEFAULT_WINDOWS = [
+    (15 * 60, "pinged_occ_15m", "15m"),
+    (5 * 60,  "pinged_occ_5m",  "5m"),
+]
+SCHEDULE_WINDOW_OVERRIDES = {
+    "prairie": [(30 * 60, "pinged_occ_30m", "30m"), (5 * 60, "pinged_occ_5m", "5m")],
+    "invasion": [(30 * 60, "pinged_occ_30m", "30m"), (5 * 60, "pinged_occ_5m", "5m")],
+}
+
+
+def _alert_timing_text(key):
+    """Human-readable tier labels for a target, e.g. '15m and 5m' or, for
+    Prairie/Invasion, '30m and 5m' — used in confirmation messages so they
+    don't hardcode the wrong tiers for a target with an override."""
+    if key in SCHEDULE_PING_KEYS:
+        windows = SCHEDULE_WINDOW_OVERRIDES.get(key, SCHEDULE_DEFAULT_WINDOWS)
+        labels = [w[2] for w in windows]
+    else:
+        labels = [w[3] for w in PING_WINDOWS]
+    return " and ".join(labels)
 
 
 async def _check_pings(guild_id, entry, channel, now_ts):
-    """Ping the configured role 15 minutes AND 5 minutes before a Guild Boss/
-    Morpheus/Rangora custom timer starts, or a schedule target (JMG/Skyfin/Halcy)
-    next occurs."""
+    """Ping the configured role before a timer/event starts: 15m+5m for custom
+    timers and most schedule targets, 30m+5m for Prairie/Invasion."""
     ping_roles = entry["ping_roles"]
     if not ping_roles:
         return
 
-    now_dt = datetime.now(MOSCOW)
-    # count=60 so a schedule target isn't missed just because other events fill
-    # the first few nearer-term slots.
-    occs = upcoming_occurrences(now_dt, count=60)
-
-    for window_secs, flag, occ_key, window_label in PING_WINDOWS:
+    for window_secs, flag, _occ_key, window_label in PING_WINDOWS:
         for t in entry["custom_timers"]:
             key = NAME_TO_PING_KEY.get(t["name"].strip().lower())
             role_id = key and ping_roles.get(key)
@@ -851,17 +888,24 @@ async def _check_pings(guild_id, entry, channel, now_ts):
                 save_data(guild_data)
                 await _send_ping(channel, role_id, get_name(entry, key), window_label)
 
-        for sched_key in SCHEDULE_PING_KEYS:
-            role_id = ping_roles.get(sched_key)
-            if not role_id:
-                continue
-            actual_key = SCHEDULE_KEY_ALIAS.get(sched_key, sched_key)
-            occ = next((o for o in occs if o.key == actual_key), None)
-            if occ is None:
-                continue
-            rem = (occ.dt - now_dt).total_seconds()
-            occ_id = occ.dt.isoformat()
-            occ_dict = entry[occ_key]
+    now_dt = datetime.now(MOSCOW)
+    # count=60 so a schedule target isn't missed just because other events fill
+    # the first few nearer-term slots.
+    occs = upcoming_occurrences(now_dt, count=60)
+
+    for sched_key in SCHEDULE_PING_KEYS:
+        role_id = ping_roles.get(sched_key)
+        if not role_id:
+            continue
+        actual_key = SCHEDULE_KEY_ALIAS.get(sched_key, sched_key)
+        occ = next((o for o in occs if o.key == actual_key), None)
+        if occ is None:
+            continue
+        rem = (occ.dt - now_dt).total_seconds()
+        occ_id = occ.dt.isoformat()
+        for window_secs, occ_dict_key, window_label in SCHEDULE_WINDOW_OVERRIDES.get(
+                sched_key, SCHEDULE_DEFAULT_WINDOWS):
+            occ_dict = entry[occ_dict_key]
             if occ_dict.get(sched_key) != occ_id and 0 < rem <= window_secs:
                 occ_dict[sched_key] = occ_id
                 save_data(guild_data)
@@ -1079,7 +1123,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
     entry["ping_roles"][target.value] = role.id
     save_data(guild_data)
     await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** will now ping {role.mention} "
-                          "15 minutes and 5 minutes before it starts.")
+                          f"{_alert_timing_text(target.value)} before it starts.")
 
 
 @roles_group.command(name="clear", description="Stop pinging a role for this timer")
