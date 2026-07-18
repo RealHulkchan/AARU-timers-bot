@@ -892,22 +892,28 @@ async def _check_pings(guild_id, entry, channel, now_ts):
         if not role_id:
             continue
         windows = SCHEDULE_WINDOW_OVERRIDES.get(sched_key, SCHEDULE_DEFAULT_WINDOWS)
+        aliases = SCHEDULE_KEY_ALIAS.get(sched_key, [sched_key])
         # A target can alias multiple underlying schedule keys (Tokens covers
         # both Prairie and Invasion) — each is tracked independently so one
-        # firing doesn't suppress the other's own occurrence.
-        for underlying_key in SCHEDULE_KEY_ALIAS.get(sched_key, [sched_key]):
+        # firing doesn't suppress the other's own occurrence. When there's more
+        # than one alias, the ping names which specific event triggered it
+        # (e.g. "Tokens (Invasion)") since "Tokens" alone wouldn't say which.
+        label = get_name(entry, sched_key)
+        for underlying_key in aliases:
             occ = next((o for o in occs if o.key == underlying_key), None)
             if occ is None:
                 continue
             rem = (occ.dt - now_dt).total_seconds()
             occ_id = occ.dt.isoformat()
             track_key = f"{sched_key}:{underlying_key}"
+            ping_label = (f"{label} ({get_name(entry, underlying_key)})"
+                          if len(aliases) > 1 else label)
             for window_secs, occ_dict_key, window_label in windows:
                 occ_dict = entry[occ_dict_key]
                 if occ_dict.get(track_key) != occ_id and 0 < rem <= window_secs:
                     occ_dict[track_key] = occ_id
                     save_data(guild_data)
-                    await _send_ping(channel, role_id, get_name(entry, sched_key), window_label)
+                    await _send_ping(channel, role_id, ping_label, window_label)
 
 
 async def _send_ping(channel, role_id, label, window_label):
