@@ -906,8 +906,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
             rem = (occ.dt - now_dt).total_seconds()
             occ_id = occ.dt.isoformat()
             track_key = f"{sched_key}:{underlying_key}"
-            ping_label = (f"{label} {get_name(entry, underlying_key)}"
-                          if len(aliases) > 1 else label)
+            ping_label = get_name(entry, underlying_key) if len(aliases) > 1 else label
             for window_secs, occ_dict_key, window_label in windows:
                 occ_dict = entry[occ_dict_key]
                 if occ_dict.get(track_key) != occ_id and 0 < rem <= window_secs:
