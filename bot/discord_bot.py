@@ -12,7 +12,7 @@ Setup:
 
 Commands (all slash commands):
     /setup                           - post the live timer board in this channel
-    /timer start name hours          - start a custom countdown (guild boss etc.)
+    /timer start name hours minutes  - start a custom countdown (guild boss etc.)
     /timer list                      - list running custom timers
     /timer cancel name               - cancel a running custom timer
     /roles set target role           - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy
@@ -1045,11 +1045,15 @@ timer_group = app_commands.Group(name="timer", description="Custom countdown tim
 
 
 @timer_group.command(name="start", description="Start a custom countdown timer")
-@app_commands.describe(name="Timer name (e.g. Kraken)", hours="Duration in hours (e.g. 2 or 1.5)")
+@app_commands.describe(name="Timer name (e.g. Kraken)", hours="Hours (0-72)", minutes="Minutes (0-59)")
 @require_permission("timer")
-async def timer_start(interaction: discord.Interaction, name: str, hours: float):
-    if hours <= 0 or hours > 72:
-        await _reply_dismiss(interaction, "Hours must be between 0 and 72.")
+async def timer_start(interaction: discord.Interaction, name: str,
+                       hours: app_commands.Range[int, 0, 72] = 0,
+                       minutes: app_commands.Range[int, 0, 59] = 0):
+    total_hours = hours + minutes / 60
+    if total_hours <= 0 or total_hours > 72:
+        await _reply_dismiss(interaction, "Enter at least 1 minute — total duration must be "
+                              "between 0 and 72 hours.")
         return
     entry = gd(interaction.guild_id)
     name = name.strip()[:24] or "timer"
@@ -1064,7 +1068,7 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
         await _reply_dismiss(interaction, f"**{display}** is already running — "
                               f"{fmt_rem(existing['end'] - now_ts)} left.")
         return
-    end = now_ts + hours * 3600
+    end = now_ts + total_hours * 3600
     entry["custom_timers"].append({"name": name, "end": end})
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
@@ -1073,7 +1077,7 @@ async def timer_start(interaction: discord.Interaction, name: str, hours: float)
     # the timer itself shows up under Guild Timers on the live board within 5s.
     await _reply_dismiss(
         interaction,
-        f"Timer started: **{display_name}** — {dur_label(hours)} ({fmt_rem(hours * 3600)} left). "
+        f"Timer started: **{display_name}** — {dur_label(total_hours)} ({fmt_rem(total_hours * 3600)} left). "
         "It'll appear on the live board within 5s.")
 
 
