@@ -82,7 +82,7 @@ WEEKLY_SCHEDULE = {
         ("charybdis", "\U0001F41B", "Charybdis (Kalidis)", ["20:30"]),
         ("golden_plains", "\U0001F3DF", "Golden Plains Battle", ["16:00~17:00", "22:30~23:59"])],
     6: [("prairie", "\U0001F304", "Prairie", ["18:00"]),
-        ("fesanix", "\U0001F9DA", "Fesanix (Inter-Server PVP)", ["18:50"]),
+        ("fesanix", "\U0001F9DA", "Fesanix (Inter-Server PVP)", ["18:30"]),
         ("black_dragon", "\U0001F409", "Black Dragon", ["19:30"]),
         ("garden_anthalon", "\U0001F47A", "Garden Anthalon", ["19:50"]),
         ("leviathan", "\U0001F40A", "Leviathan", ["20:30"]),
