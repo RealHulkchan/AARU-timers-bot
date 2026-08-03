@@ -20,6 +20,7 @@ registering a separate command per verb, keeping the "/" picker short.
 | `/config buttons` (action: Hide/Show/List) | Hide/show individual buttons |
 | `/config pings` (section: Message/Alerts) | Custom ping wording; silence/restore a target's alerts without unbinding its role |
 | `/config board` (section: Wording/Category/Events) | Customize row wording, move events between Bosses & PVP / Upcoming Events, or hide events entirely |
+| `/config emoji` (action: Set/Reset/List) | Customize the icon next to board/role-message headers and custom-timer rows, including this server's own custom emoji |
 | `/clear` | Delete the bot's own messages in this channel |
 
 ## Ping targets
@@ -30,7 +31,7 @@ Guild Boss, JMG, Morpheus, Rangora, Skyfin, Halcy (= Golden Plains Battle), Toke
 
 preset_timers, timer, setup, roles, language, names, clear_cmd, buttons, pings, board — each independently set to Everyone / Send Messages / Manage Messages / Manage Server.
 
-Defaults: preset buttons = Everyone. `setup`, `language`, `board` (covers `/config roles` section:Visibility too) = Manage Server — these change how the bot presents to the *whole server* (layout, language, wording, event visibility, or the opt-in message's presence). Everything else = Manage Messages. `/config permissions` itself is hardcoded Manage Server.
+Defaults: preset buttons = Everyone. `setup`, `language`, `board` (covers `/config roles` section:Visibility and `/config emoji` too) = Manage Server — these change how the bot presents to the *whole server* (layout, language, wording, event visibility, or the opt-in message's presence). Everything else = Manage Messages. `/config permissions` itself is hardcoded Manage Server.
 
 ## Notes
 

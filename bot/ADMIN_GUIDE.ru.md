@@ -20,6 +20,7 @@ Show и т.д.), так что одна команда покрывает всё
 | `/config buttons` (action: Hide/Show/List) | Скрыть/показать отдельные кнопки |
 | `/config pings` (section: Message/Alerts) | Свой текст пинга; отключить/восстановить пинг для цели без отвязки роли |
 | `/config board` (section: Wording/Category/Events) | Свой текст строк, перемещение событий между «Боссы и PvP» / «Ближайшие события», или полное скрытие события |
+| `/config emoji` (action: Set/Reset/List) | Свой значок рядом с заголовками доски/сообщения с ролями и строками таймеров, включая свой эмодзи сервера |
 | `/clear` | Удалить сообщения самого бота в этом канале |
 
 ## Цели для пингов
@@ -30,7 +31,7 @@ Guild Boss, JMG, Morpheus, Rangora, Skyfin, Halcy (= Golden Plains Battle), Toke
 
 preset_timers, timer, setup, roles, language, names, clear_cmd, buttons, pings, board — для каждой отдельно задаётся уровень: Everyone / Send Messages / Manage Messages / Manage Server.
 
-По умолчанию: кнопки-пресеты = Everyone. `setup`, `language`, `board` (включает и `/config roles` section:Visibility) = Manage Server — эти команды меняют то, как бот выглядит для *всего сервера* (расположение, язык, текст, видимость событий или само наличие сообщения с ролями). Всё остальное = Manage Messages. Сама `/config permissions` жёстко закреплена на Manage Server.
+По умолчанию: кнопки-пресеты = Everyone. `setup`, `language`, `board` (включает и `/config roles` section:Visibility, и `/config emoji`) = Manage Server — эти команды меняют то, как бот выглядит для *всего сервера* (расположение, язык, текст, видимость событий или само наличие сообщения с ролями). Всё остальное = Manage Messages. Сама `/config permissions` жёстко закреплена на Manage Server.
 
 ## Заметки
 

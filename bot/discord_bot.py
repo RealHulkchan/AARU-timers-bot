@@ -53,6 +53,10 @@ Category, and Events all under one entry in the "/" picker:
                                            default. section:Events action:Hide removes an event from the
                                            board (and its pings) entirely; action:Show brings it back.
                                            Every section also supports action:List.
+    /config emoji action key emoji      - action:Set changes the icon next to a board/role-message
+                                           header or each custom-timer row (type/paste any standard
+                                           emoji or this server's own custom emoji); action:Reset
+                                           restores the default; action:List shows all
 
 Russian ping alerts already use a fully-localized template ("{role} {event}
 через {time}!") by default — the event name comes from /config names as
@@ -69,9 +73,9 @@ side by side.
 
 Permission levels are per-guild and configurable — see /config permissions
 above. Defaults: preset buttons = everyone; /setup, /config language,
-and /config board (incl. /config roles section:Visibility) = Manage Server
-(whole-server presentation); everything else (/timer, /config roles
-section:Ping|Message, /config names, /clear, /config buttons,
+and /config board (incl. /config roles section:Visibility, /config emoji)
+= Manage Server (whole-server presentation); everything else (/timer,
+/config roles section:Ping|Message, /config names, /clear, /config buttons,
 /config pings) = Manage Messages. /config permissions itself always
 requires Manage Server, hardcoded, so it can't be used to lower its own bar.
 """
@@ -304,6 +308,7 @@ def gd(guild_id):
     entry.setdefault("role_hidden", False)   # /config roles (section: Visibility, Hide) — skip auto-posting
     entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /config board (section: Category)
     entry.setdefault("disabled_events", [])   # event keys fully hidden (board + pings) — /config board (section: Events, Hide)
+    entry.setdefault("ui_emoji", {})   # {ui_key: emoji or shortcode} — /config emoji
     return entry
 
 
@@ -323,7 +328,7 @@ PERMISSION_TARGETS = [
     ("clear_cmd", "/clear"),
     ("buttons", "/config buttons"),
     ("pings", "/config pings (section: Message, Alerts)"),
-    ("board", "/config board (section: Wording, Category); /config roles (section: Visibility)"),
+    ("board", "/config board (section: Wording, Category, Events); /config roles (section: Visibility); /config emoji"),
 ]
 PERMISSION_TARGET_DESCRIPTIONS = {
     "preset_timers": "The buttons under the board that start a preset Guild Boss "
@@ -355,7 +360,9 @@ PERMISSION_TARGET_DESCRIPTIONS = {
              "section:Category — move an event between Bosses & PVP "
              "and Upcoming Events. section:Events action:Hide — remove an event "
              "from the board and its pings entirely. /config roles section:Visibility — "
-             "remove or repost the opt-in role message entirely. All change how "
+             "remove or repost the opt-in role message entirely. /config emoji — "
+             "customize the icon next to each board/role-message header or timer "
+             "row, including this server's own custom emoji. All change how "
              "the bot presents to the whole server, so this defaults stricter "
              "than most.",
 }
@@ -501,15 +508,15 @@ DEFAULT_NAMES_RU = {
 # not guild-specific game slang, so no need to defer to an admin command).
 UI = {
     "en": {
-        "title": "🗓️ ArcheAge Timers",
+        "title": "ArcheAge Timers",
         "server_label": "Server (MSK)",
-        "custom_timers": "⏱️ Guild Timers",
-        "bosses_pvp": ":small_orange_diamond: Bosses & PVP",
-        "daily_cycles": "🕐 Upcoming Events",
+        "custom_timers": "Guild Timers",
+        "bosses_pvp": "Bosses & PVP",
+        "daily_cycles": "Upcoming Events",
         "live_now": "**Live now**",
         "upcoming": "**Upcoming**",
         "footer": "Updates every 5s",
-        "opt_in_title": "🔔 Opt Into Timer Pings",
+        "opt_in_title": "Opt Into Timer Pings",
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
                          "15 and 5 minutes before that timer starts (30 and 5 for "
                          "Prairie/Invasion).\n\n"
@@ -520,15 +527,15 @@ UI = {
         "appeared_time_format": "Appeared! {time} elapsed",
     },
     "ru": {
-        "title": "🗓️ Таймеры ArcheAge",
+        "title": "Таймеры ArcheAge",
         "server_label": "Сервер (МСК)",
-        "custom_timers": "⏱️ Гильдейские таймеры",
-        "bosses_pvp": ":small_orange_diamond: Боссы и PvP",
-        "daily_cycles": "🕐 Ближайшие события",
+        "custom_timers": "Гильдейские таймеры",
+        "bosses_pvp": "Боссы и PvP",
+        "daily_cycles": "Ближайшие события",
         "live_now": "**Сейчас идёт**",
         "upcoming": "**Скоро**",
         "footer": "Обновляется каждые 5с",
-        "opt_in_title": "🔔 Подписка на уведомления",
+        "opt_in_title": "Подписка на уведомления",
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
                          "уведомление за 15 и за 5 минут до начала (за 30 и за 5 минут "
                          "для Prairie/Invasion).\n\n"
@@ -543,6 +550,35 @@ UI = {
 
 def ui(entry, key):
     return UI[entry.get("language", "en")][key]
+
+
+# Default leading icon for each emoji-bearing UI element. Language-independent
+# (unlike UI's text) since an emoji reads the same in any language. Written as
+# Discord shortcode text rather than the raw glyph purely for source
+# readability — Discord's own message renderer converts a bot-sent
+# ":shortcode:" to the real emoji server-side, same as if a human typed it.
+DEFAULT_EMOJI = {
+    "title": ":spiral_calendar_pad:",
+    "custom_timers": ":stopwatch:",
+    "bosses_pvp": ":small_orange_diamond:",
+    "daily_cycles": ":clock1:",
+    "opt_in_title": ":bell:",
+    "custom_timer_row": ":stopwatch:",
+}
+
+
+def get_emoji(entry, key):
+    """Per-guild emoji override for a UI element, falling back to
+    DEFAULT_EMOJI — same override pattern as get_name, but for the leading
+    icon instead of the label text. Admins set this via /config emoji; a
+    custom server emoji only ever renders correctly inside its own server,
+    which is exactly the case here (each guild only ever sees its own board)."""
+    return entry["ui_emoji"].get(key, DEFAULT_EMOJI[key])
+
+
+def ui_emoji(entry, key):
+    """The emoji + localized label for a UI element, e.g. ':stopwatch: Guild Timers'."""
+    return f"{get_emoji(entry, key)} {ui(entry, key)}"
 
 
 def get_name(entry, key, fallback=None):
@@ -643,11 +679,13 @@ def build_embed(entry):
             # Counts UP once it appears (kept for CUSTOM_TIMER_KEEP_SECS total)
             # instead of a static "UP!" that gave no sense of how long ago.
             elapsed = -rem
-            custom_lines.append(f"⏱ **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(elapsed))}")
+            row_emoji = get_emoji(entry, "custom_timer_row")
+            custom_lines.append(f"{row_emoji} **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(elapsed))}")
         else:
             epoch = int(t["end"])
             msk_t = datetime.fromtimestamp(t["end"], tz=MOSCOW).strftime("%H:%M")
-            custom_lines.append(f"⏱ **{name}** — <t:{epoch}:t> · MSK {msk_t} · "
+            row_emoji = get_emoji(entry, "custom_timer_row")
+            custom_lines.append(f"{row_emoji} **{name}** — <t:{epoch}:t> · MSK {msk_t} · "
                                  f"{_render_time_text(entry, 'live', fmt_rem(rem))}")
 
     is_primary = lambda key: _event_category(entry, key) == "primary"   # noqa: E731
@@ -673,13 +711,13 @@ def build_embed(entry):
     up_secondary = _dedupe_next(o for o in occs if not is_primary(o.key)
                                  and o.key not in active_secondary_keys)
 
-    parts = [f"# {ui(entry, 'title')} — {ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
+    parts = [f"# {ui_emoji(entry, 'title')} — {ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
 
     if custom_lines:
-        parts.append(f"## {ui(entry, 'custom_timers')}\n" + "\n\n".join(custom_lines))
+        parts.append(f"## {ui_emoji(entry, 'custom_timers')}\n" + "\n\n".join(custom_lines))
 
     if active_primary or up_primary:
-        section = [f"## {ui(entry, 'bosses_pvp')}"]
+        section = [f"## {ui_emoji(entry, 'bosses_pvp')}"]
         if active_primary:
             section.append(ui(entry, "live_now") + "\n" +
                             "\n\n".join(_live_line(entry, o, now) for o in active_primary))
@@ -689,7 +727,7 @@ def build_embed(entry):
         parts.append("\n".join(section))
 
     if active_secondary or up_secondary:
-        section = [f"## {ui(entry, 'daily_cycles')}"]
+        section = [f"## {ui_emoji(entry, 'daily_cycles')}"]
         if active_secondary:
             section.append(ui(entry, "live_now") + "\n" +
                             "\n\n".join(_live_line(entry, o, now) for o in active_secondary))
@@ -802,7 +840,7 @@ class PresetView(discord.ui.View):
 def build_role_embed(entry):
     """Boxed (embed, not plain text) opt-in message so it visually matches the
     board instead of looking like a loose announcement."""
-    return discord.Embed(title=ui(entry, "opt_in_title"), description=ui(entry, "opt_in_desc"),
+    return discord.Embed(title=ui_emoji(entry, "opt_in_title"), description=ui(entry, "opt_in_desc"),
                           color=EMBED_COLOR)
 
 
@@ -1308,14 +1346,15 @@ async def timer_list(interaction: discord.Interaction):
         await _reply_dismiss(interaction, "No custom timers running.")
         return
     now_ts = datetime.now(MOSCOW).timestamp()
+    row_emoji = get_emoji(entry, "custom_timer_row")
     lines = []
     for t in entry["custom_timers"]:
         name = _custom_timer_name(entry, t)
         rem = t["end"] - now_ts
         if rem <= 0:
-            lines.append(f"⏱ **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(-rem))}")
+            lines.append(f"{row_emoji} **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(-rem))}")
         else:
-            lines.append(f"⏱ **{name}** — {fmt_rem(rem)} left")
+            lines.append(f"{row_emoji} **{name}** — {fmt_rem(rem)} left")
     await _reply_dismiss(interaction, "\n".join(lines))
 
 
@@ -1831,6 +1870,50 @@ async def board_cmd_key_autocomplete(interaction: discord.Interaction, current: 
     current = current.lower()
     return [app_commands.Choice(name=DEFAULT_NAMES[k], value=k) for k in BOARD_EVENT_KEYS
             if current in k.lower() or current in DEFAULT_NAMES[k].lower()][:25]
+
+
+EMOJI_TARGET_CHOICES = [
+    app_commands.Choice(name="Title (board header)", value="title"),
+    app_commands.Choice(name="Guild Timers (custom timer section header)", value="custom_timers"),
+    app_commands.Choice(name="Bosses & PVP (section header)", value="bosses_pvp"),
+    app_commands.Choice(name="Upcoming Events (section header)", value="daily_cycles"),
+    app_commands.Choice(name="Opt-In Title (role message header)", value="opt_in_title"),
+    app_commands.Choice(name="Custom Timer Row (each guild timer line)", value="custom_timer_row"),
+]
+EMOJI_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                        app_commands.Choice(name="Reset", value="reset"),
+                        app_commands.Choice(name="List", value="list")]
+
+
+@config_group.command(name="emoji", description="Customize the emoji shown next to board headers and timer rows on this server")
+@app_commands.describe(action="Set, Reset, or List", key="Which UI element (Set/Reset only)",
+                        emoji="Type or paste an emoji — a standard one, or this server's own custom emoji (Set only)")
+@app_commands.choices(action=EMOJI_ACTION_CHOICES, key=EMOJI_TARGET_CHOICES)
+@require_permission("board")
+async def emoji_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
+                     key: Optional[app_commands.Choice[str]] = None, emoji: Optional[str] = None):
+    entry = gd(interaction.guild_id)
+    if action.value == "list":
+        lines = [f"**{c.name}** — {get_emoji(entry, c.value)}" +
+                 (" *(custom)*" if c.value in entry["ui_emoji"] else "") for c in EMOJI_TARGET_CHOICES]
+        await _reply_dismiss(interaction, "\n".join(lines))
+        return
+    if key is None:
+        await _reply_dismiss(interaction, "`key` is required for Set/Reset.")
+        return
+    if action.value == "set":
+        if emoji is None or not emoji.strip():
+            await _reply_dismiss(interaction, "`emoji` is required to Set.")
+            return
+        entry["ui_emoji"][key.value] = emoji.strip()[:100]
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{key.name}** now uses {emoji.strip()[:100]}. Board updates within "
+                              "5s; repost the role message via `/config roles` section:Message to update it there too.")
+    else:
+        had = entry["ui_emoji"].pop(key.value, None) is not None
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{key.name}** reset to the default."
+                              if had else f"**{key.name}** was already default.")
 
 
 client.tree.add_command(config_group)

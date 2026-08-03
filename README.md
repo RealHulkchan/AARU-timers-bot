@@ -27,6 +27,7 @@ Wording, Category, and Events all in one entry in the "/" picker).
 | `/config buttons` (action: Hide/Show/List) | Manage Messages | Hide/show individual preset/role buttons |
 | `/config pings` (section: Message/Alerts, action: Set/Reset/Disable/Enable/List) | Manage Messages | Custom ping wording; silence a target's alerts without unbinding its role |
 | `/config board` (section: Wording/Category/Events, action: Set/Reset/List/Hide/Show) | Manage Server | Customize board wording, move events between Bosses & PVP / Upcoming Events, or hide events entirely |
+| `/config emoji` (action: Set/Reset/List) | Manage Server | Customize the icon next to board/role-message headers and custom-timer rows, including this server's own custom emoji |
 
 Preset buttons (`+ Guild Boss/Morph/Rangora`) require Manage Messages to click.
 Role self-assign buttons are open to everyone by design.
