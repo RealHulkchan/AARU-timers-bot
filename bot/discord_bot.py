@@ -33,6 +33,15 @@ Commands (all slash commands):
     /buttons hide button             - hide a preset/role button on this server (repost to apply)
     /buttons show button             - un-hide it
     /buttons list                    - show which buttons are hidden here
+    /pings message text              - set a custom ping template ({role} {event} {time})
+    /pings message-reset             - reset the ping template to the language default
+    /pings disable target            - silence a target's ping alerts without unbinding its role
+    /pings enable target             - re-enable them
+    /pings list                      - show the template and which targets are silenced
+
+Russian ping alerts already use a fully-localized template ("{role} {event}
+через {time}!") by default — the event name comes from /names set as before,
+only the surrounding "in X minutes"-style wording was English-only until now.
 
 Permission levels are per-guild and configurable — see /permissions above.
 Defaults: preset buttons = everyone; everything else (/setup, /timer,
@@ -248,6 +257,8 @@ def gd(guild_id):
     entry.setdefault("event_names", {})   # {event_key: {"en": "...", "ru": "..."}}
     entry.setdefault("permissions", {})   # {target: "everyone"|"manage_messages"|"manage_server"}
     entry.setdefault("hidden_buttons", [])   # list of button custom_ids not shown on this guild's messages
+    entry.setdefault("ping_template", None)  # None = use the language's default template
+    entry.setdefault("disabled_pings", [])   # list of ping-target keys with alerts suppressed
     return entry
 
 
@@ -264,6 +275,7 @@ PERMISSION_TARGETS = [
     ("names", "/names set, clear"),
     ("clear_cmd", "/clear"),
     ("buttons", "/buttons hide, show"),
+    ("pings", "/pings message, disable, enable"),
 ]
 PERMISSION_TARGET_DESCRIPTIONS = {
     "preset_timers": "The buttons under the board that start a preset Guild Boss "
@@ -285,6 +297,9 @@ PERMISSION_TARGET_DESCRIPTIONS = {
                  "other users' messages.",
     "buttons": "/buttons hide/show — controls which individual preset/role "
                "buttons appear on this server's board and role message.",
+    "pings": "/pings message set — customize the outgoing ping text (placeholders "
+             "{role} {event} {time}). /pings disable/enable — silence a specific "
+             "target's alerts without unbinding its role.",
 }
 DEFAULT_PERMISSION_LEVELS = {
     "preset_timers": "everyone",
@@ -295,6 +310,7 @@ DEFAULT_PERMISSION_LEVELS = {
     "names": "manage_messages",
     "clear_cmd": "manage_messages",
     "buttons": "manage_messages",
+    "pings": "manage_messages",
 }
 PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "send_messages": "Send Messages",
                             "manage_messages": "Manage Messages", "manage_server": "Manage Server"}
@@ -426,6 +442,7 @@ UI = {
                          "15 and 5 minutes before that timer starts (30 and 5 for "
                          "Prairie/Invasion).\n\n"
                          "*An admin binds each button to a role with `/roles set`.*"),
+        "ping_template": "{role} **{event}** in {time}!",
     },
     "ru": {
         "title": "🗓️ Таймеры ArcheAge",
@@ -441,6 +458,7 @@ UI = {
                          "уведомление за 15 и за 5 минут до начала (за 30 и за 5 минут "
                          "для Prairie/Invasion).\n\n"
                          "*Админ привязывает роль к кнопке командой `/roles set`.*"),
+        "ping_template": "{role} **{event}** через {time}!",
     },
 }
 
@@ -865,24 +883,39 @@ def _alert_timing_text(key):
     return " and ".join(labels)
 
 
+def _render_ping_message(entry, role_id, label, window_label):
+    """Guild's own template (set via /pings message set) if any, else the
+    language's default. Falls back to the default on a bad/malformed custom
+    template (e.g. a typo'd placeholder) rather than ever failing to ping."""
+    template = entry.get("ping_template") or ui(entry, "ping_template")
+    try:
+        return template.format(role=f"<@&{role_id}>", event=label, time=window_label)
+    except (KeyError, IndexError):
+        default = UI[entry.get("language", "en")]["ping_template"]
+        return default.format(role=f"<@&{role_id}>", event=label, time=window_label)
+
+
 async def _check_pings(guild_id, entry, channel, now_ts):
     """Ping the configured role before a timer/event starts: 15m+5m for custom
-    timers and most schedule targets, 30m+5m for Tokens (Prairie/Invasion)."""
+    timers and most schedule targets, 30m+5m for Tokens (Prairie/Invasion).
+    Skips any target listed in entry["disabled_pings"] (/pings disable)."""
     ping_roles = entry["ping_roles"]
     if not ping_roles:
         return
+    disabled = entry["disabled_pings"]
 
     for window_secs, flag, _occ_key, window_label in PING_WINDOWS:
         for t in entry["custom_timers"]:
             key = NAME_TO_PING_KEY.get(t["name"].strip().lower())
-            role_id = key and ping_roles.get(key)
+            role_id = key and key not in disabled and ping_roles.get(key)
             rem = t["end"] - now_ts
             if role_id and not t.get(flag) and 0 < rem <= window_secs:
                 # Marked pinged BEFORE the send (not after) so there's no await
                 # window where a re-entrant check could fire twice.
                 t[flag] = True
                 save_data(guild_data)
-                await _send_ping(channel, role_id, get_name(entry, key), window_label)
+                text = _render_ping_message(entry, role_id, get_name(entry, key), window_label)
+                await _send_ping(channel, text, key)
 
     now_dt = datetime.now(MOSCOW)
     # count=60 so a schedule target isn't missed just because other events fill
@@ -890,6 +923,8 @@ async def _check_pings(guild_id, entry, channel, now_ts):
     occs = upcoming_occurrences(now_dt, count=60)
 
     for sched_key in SCHEDULE_PING_KEYS:
+        if sched_key in disabled:
+            continue
         role_id = ping_roles.get(sched_key)
         if not role_id:
             continue
@@ -914,15 +949,15 @@ async def _check_pings(guild_id, entry, channel, now_ts):
                 if occ_dict.get(track_key) != occ_id and 0 < rem <= window_secs:
                     occ_dict[track_key] = occ_id
                     save_data(guild_data)
-                    await _send_ping(channel, role_id, ping_label, window_label)
+                    text = _render_ping_message(entry, role_id, ping_label, window_label)
+                    await _send_ping(channel, text, sched_key)
 
 
-async def _send_ping(channel, role_id, label, window_label):
+async def _send_ping(channel, text, log_label):
     try:
-        msg = await channel.send(f"<@&{role_id}> **{label}** in {window_label}!",
-                                  allowed_mentions=discord.AllowedMentions(roles=True))
+        msg = await channel.send(text, allowed_mentions=discord.AllowedMentions(roles=True))
     except Exception as e:
-        print(f"[PING] {label} failed: {e}")
+        print(f"[PING] {log_label} failed: {e}")
         return False
 
     async def _delete_later():
@@ -1348,6 +1383,79 @@ async def buttons_list(interaction: discord.Interaction):
 
 
 client.tree.add_command(buttons_group)
+
+
+pings_group = app_commands.Group(name="pings", description="Customize or silence outgoing ping alerts on this server")
+PING_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS]
+
+
+@pings_group.command(name="message", description="Set a custom template for outgoing ping messages on this server")
+@app_commands.describe(text="Use {role} {event} {time} as placeholders, e.g. '{role} {event} spawns in {time}!'")
+@require_permission("pings")
+async def pings_message(interaction: discord.Interaction, text: str):
+    try:
+        text.format(role="<@&0>", event="Test", time="5m")
+    except (KeyError, IndexError) as e:
+        await _reply_dismiss(interaction, f"That template has a bad placeholder ({e}) — only "
+                              "{role}, {event}, and {time} are valid.")
+        return
+    entry = gd(interaction.guild_id)
+    entry["ping_template"] = text.strip()[:200]
+    save_data(guild_data)
+    preview = _render_ping_message(entry, 0, "Guild Boss", "15m").replace("<@&0>", "@Guild Boss Pings")
+    await _reply_dismiss(interaction, f"Ping template updated. Preview:\n{preview}")
+
+
+@pings_group.command(name="message-reset", description="Reset the ping template back to the language default")
+@require_permission("pings")
+async def pings_message_reset(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    had = entry["ping_template"] is not None
+    entry["ping_template"] = None
+    save_data(guild_data)
+    await _reply_dismiss(interaction, "Ping template reset to the language default."
+                          if had else "Already using the language default.")
+
+
+@pings_group.command(name="disable", description="Silence a target's ping alerts without unbinding its role")
+@app_commands.describe(target="Which timer/event")
+@app_commands.choices(target=PING_TARGET_CHOICES)
+@require_permission("pings")
+async def pings_disable(interaction: discord.Interaction, target: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    if target.value not in entry["disabled_pings"]:
+        entry["disabled_pings"].append(target.value)
+        save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** alerts are now silenced "
+                          "on this server (the role binding is untouched).")
+
+
+@pings_group.command(name="enable", description="Re-enable a target's ping alerts")
+@app_commands.describe(target="Which timer/event")
+@app_commands.choices(target=PING_TARGET_CHOICES)
+@require_permission("pings")
+async def pings_enable(interaction: discord.Interaction, target: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    had = target.value in entry["disabled_pings"]
+    if had:
+        entry["disabled_pings"].remove(target.value)
+        save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** alerts re-enabled."
+                          if had else f"**{get_name(entry, target.value)}** wasn't silenced.")
+
+
+@pings_group.command(name="list", description="Show the ping template and which targets are silenced")
+async def pings_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    template = entry["ping_template"] or f"{ui(entry, 'ping_template')} (language default)"
+    lines = [f"Template: {template}", ""]
+    for key, label in PING_TARGETS:
+        status = "silenced" if key in entry["disabled_pings"] else "enabled"
+        lines.append(f"**{get_name(entry, key)}** — {status}")
+    await _reply_dismiss(interaction, "\n".join(lines))
+
+
+client.tree.add_command(pings_group)
 
 
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
