@@ -10,48 +10,53 @@ Setup:
     set DISCORD_TOKEN=your-bot-token   (or put it in a .env file, see .env.example)
     python discord_bot.py
 
-Commands (all slash commands):
-    /setup                           - post the live timer board in this channel
-    /timer start name hours minutes  - start a custom countdown (guild boss etc.)
-    /timer list                      - list running custom timers
-    /timer cancel name               - cancel a running custom timer
-    /roles set target role           - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy
-                                        starts (15m+5m), or before Prairie/Invasion starts (Tokens
-                                        target, 30m+5m — one role covers both events)
-    /roles clear target              - stop pinging for that target
-    /roles list                      - show configured ping roles
-    /roles message                   - post a permanent self-assign button message for the 4 roles
-    /roles hide                      - delete the opt-in role message and stop /setup reposting it
-    /roles show                      - repost it (same as /roles message) and clear the hidden flag
-    /language set|show               - toggle the board/pings between English and Russian
-    /names set key language text     - set this server's own name for an event/boss in a language
-    /names clear key language        - reset an event/boss's name back to default
-    /names list                      - show every event/boss's name in both languages
-    /events                          - one-off snapshot (ephemeral, auto-dismisses)
-    /clear                           - delete this bot's own messages in the channel
-    /permissions set target level    - set the permission level a command/button needs on this server
-    /permissions clear target        - reset a command/button's level back to default
-    /permissions list                - show every command/button's current level
-    /buttons hide button             - hide a preset/role button on this server (repost to apply)
-    /buttons show button             - un-hide it
-    /buttons list                    - show which buttons are hidden here
-    /pings message text              - set a custom ping template ({role} {event} {time})
-    /pings message-reset             - reset the ping template to the language default
-    /pings disable target            - silence a target's ping alerts without unbinding its role
-    /pings enable target             - re-enable them
-    /pings list                      - show the template and which targets are silenced
-    /board time-format kind text     - customize board wording ({time} placeholder; kind=live|upcoming)
-    /board time-reset kind           - reset one (or both) back to the language default
-    /board time-list                 - show the current live/upcoming templates
-    /board category-set key category - move an event between Bosses & PVP and Upcoming Events
-    /board category-reset key        - reset an event's section back to default
-    /board category-list             - show which section every event is in on this server
+Commands (all slash commands). Everything except /setup, /timer, /events, and
+/clear nests under one top-level /config so the "/" picker isn't a wall of
+top-level entries — e.g. "/roles set" below is really "/config roles set":
+
+    /setup                             - post the live timer board in this channel
+    /timer start name hours minutes    - start a custom countdown (guild boss etc.)
+    /timer list                        - list running custom timers
+    /timer cancel name                 - cancel a running custom timer
+    /events                            - one-off snapshot (ephemeral, auto-dismisses)
+    /clear                             - delete this bot's own messages in the channel
+
+    /config roles set target role      - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/
+                                          Halcy starts (15m+5m), or Prairie/Invasion (Tokens, 30m+5m
+                                          — one role covers both events)
+    /config roles clear target         - stop pinging for that target
+    /config roles list                 - show configured ping roles
+    /config roles message              - post a permanent self-assign button message for the roles
+    /config roles hide                 - delete the opt-in role message; /setup won't repost it
+    /config roles show                 - repost it and clear the hidden flag
+    /config language set|show          - toggle the board/pings between English and Russian
+    /config names set key language text- set this server's own name for an event/boss in a language
+    /config names clear key language   - reset an event/boss's name back to default
+    /config names list                 - show every event/boss's name in both languages
+    /config permissions set target lvl - set the permission level a command/button needs here
+    /config permissions clear target   - reset a command/button's level back to default
+    /config permissions list           - show every command/button's current level
+    /config buttons hide|show button   - hide/un-hide a preset/role button (repost to apply)
+    /config buttons list               - show which buttons are hidden here
+    /config pings message text         - set a custom ping template ({role} {event} {time})
+    /config pings message-reset        - reset the ping template to the language default
+    /config pings disable|enable target- silence/restore a target's alerts without unbinding its role
+    /config pings list                 - show the template and which targets are silenced
+    /config board time-format kind text- customize board wording ({time}; kind=live|upcoming)
+    /config board time-reset kind      - reset one (or both) back to the language default
+    /config board time-list            - show the current live/upcoming templates
+    /config board category-set key cat - move an event between Bosses & PVP and Upcoming Events
+    /config board category-reset key   - reset an event's section back to default
+    /config board category-list        - show which section every event is in here
+    /config board hide-event key       - remove an event from the board (and its pings) entirely
+    /config board show-event key       - bring it back
+    /config board hidden-list          - show which events are hidden here
 
 Russian ping alerts already use a fully-localized template ("{role} {event}
-через {time}!") by default — the event name comes from /names set as before,
-only the surrounding "in X minutes"-style wording was English-only until now.
-The board's own "6m left"/"in 1h" wording is customizable the same way via
-/board time-format, also localized to Russian by default.
+через {time}!") by default — the event name comes from /config names set as
+before, only the surrounding "in X minutes"-style wording was English-only
+until now. The board's own "6m left"/"in 1h" wording is customizable the
+same way via /config board time-format, also localized to Russian by default.
 
 Permission levels are per-guild and configurable — see /permissions above.
 Defaults: preset buttons = everyone; /setup, /language set, and /board
@@ -285,6 +290,7 @@ def gd(guild_id):
     entry.setdefault("role_message_id", None)
     entry.setdefault("role_hidden", False)   # /roles hide — skip auto-posting the opt-in message
     entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /board category-set
+    entry.setdefault("disabled_events", [])   # event keys fully hidden (board + pings) — /board hide-event
     return entry
 
 
@@ -329,8 +335,9 @@ PERMISSION_TARGET_DESCRIPTIONS = {
              "target's alerts without unbinding its role.",
     "board": "/board time-format — customize the board's own \"6m left\"/\"in 1h\" "
              "wording for Live Now and Upcoming rows. /board category-set — move an "
-             "event between Bosses & PVP and Upcoming Events. /roles hide/show — "
-             "remove or repost the opt-in role message entirely. All change how the "
+             "event between Bosses & PVP and Upcoming Events. /board hide-event — "
+             "remove an event from the board and its pings entirely. /roles hide/show "
+             "— remove or repost the opt-in role message entirely. All change how the "
              "bot presents to the whole server, so this defaults stricter than most.",
 }
 # setup/language/board default stricter (Manage Server) than the rest — each
@@ -608,7 +615,7 @@ def build_embed(entry):
 
     is_primary = lambda key: _event_category(entry, key) == "primary"   # noqa: E731
 
-    active = active_occurrences(now)
+    active = active_occurrences(now, disabled=entry["disabled_events"])
     active_primary   = [o for o in active if is_primary(o.key)]
     active_secondary = [o for o in active if not is_primary(o.key)]
     active_primary_keys   = {o.key for o in active_primary}
@@ -623,7 +630,7 @@ def build_embed(entry):
     # top of that used to silently drop whole events whenever a category had more
     # than a handful of distinct keys (e.g. after moving one in via /board
     # category-set), which read as "it just vanished" rather than "it's rare".
-    occs = upcoming_occurrences(now, count=60)
+    occs = upcoming_occurrences(now, count=60, disabled=entry["disabled_events"])
     up_primary   = _dedupe_next(o for o in occs if is_primary(o.key)
                                  and o.key not in active_primary_keys)
     up_secondary = _dedupe_next(o for o in occs if not is_primary(o.key)
@@ -991,8 +998,10 @@ async def _check_pings(guild_id, entry, channel, now_ts):
 
     now_dt = datetime.now(MOSCOW)
     # count=60 so a schedule target isn't missed just because other events fill
-    # the first few nearer-term slots.
-    occs = upcoming_occurrences(now_dt, count=60)
+    # the first few nearer-term slots. disabled=disabled_events (board-hidden, not
+    # to be confused with `disabled` above which is /pings disable's per-target list)
+    # so a fully-hidden event can't still ping.
+    occs = upcoming_occurrences(now_dt, count=60, disabled=entry["disabled_events"])
 
     for sched_key in SCHEDULE_PING_KEYS:
         if sched_key in disabled:
@@ -1229,7 +1238,17 @@ async def timer_cancel_autocomplete(interaction: discord.Interaction, current: s
 client.tree.add_command(timer_group)
 
 
-roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m and 5m before a timer starts")
+# Every configuration-style group below nests under this single top-level
+# /config command instead of registering separately — otherwise the "/" picker
+# lists 11 top-level commands at once. Discord allows exactly two levels of
+# subcommand groups (config -> roles -> set), which is what this uses; a
+# nested group registers automatically once its parent does; individual
+# client.tree.add_command(...) calls for each are removed.
+config_group = app_commands.Group(name="config", description="Configure the bot for this server")
+
+
+roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m and 5m before a timer starts",
+                                  parent=config_group)
 
 
 @roles_group.command(name="set", description="Ping a role 15 minutes and 5 minutes before this timer starts")
@@ -1302,10 +1321,8 @@ async def roles_show(interaction: discord.Interaction):
     await _reply_dismiss(interaction, "Role message shown again.")
 
 
-client.tree.add_command(roles_group)
-
-
-language_group = app_commands.Group(name="language", description="Choose the board/ping language (English or Russian)")
+language_group = app_commands.Group(name="language", description="Choose the board/ping language (English or Russian)",
+                                     parent=config_group)
 LANGUAGE_CHOICES = [app_commands.Choice(name="English", value="en"),
                      app_commands.Choice(name="Russian", value="ru")]
 
@@ -1329,10 +1346,8 @@ async def language_show(interaction: discord.Interaction):
     await _reply_dismiss(interaction, f"Current language: **{name}**.")
 
 
-client.tree.add_command(language_group)
-
-
-names_group = app_commands.Group(name="names", description="Set this server's own event/boss names per language")
+names_group = app_commands.Group(name="names", description="Set this server's own event/boss names per language",
+                                  parent=config_group)
 
 
 @names_group.command(name="set", description="Set an event/boss's name for a language (e.g. a Russian alias)")
@@ -1391,11 +1406,9 @@ async def names_list(interaction: discord.Interaction):
     await _reply_dismiss(interaction, text[:3900] + ("\n…" if len(text) > 3900 else ""))
 
 
-client.tree.add_command(names_group)
-
-
 permissions_group = app_commands.Group(name="permissions",
-                                        description="Configure which permission level each command/button needs on this server")
+                                        description="Configure which permission level each command/button needs on this server",
+                                        parent=config_group)
 PERMISSION_LEVEL_CHOICES = [app_commands.Choice(name=label, value=key)
                             for key, label in PERMISSION_LEVEL_LABELS.items()]
 PERMISSION_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PERMISSION_TARGETS]
@@ -1442,10 +1455,8 @@ async def permissions_list(interaction: discord.Interaction):
     await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
 
 
-client.tree.add_command(permissions_group)
-
-
-buttons_group = app_commands.Group(name="buttons", description="Hide/show individual buttons on this server's board and role message")
+buttons_group = app_commands.Group(name="buttons", description="Hide/show individual buttons on this server's board and role message",
+                                    parent=config_group)
 BUTTON_CHOICES = [app_commands.Choice(name=label, value=cid) for cid, label in BUTTON_REGISTRY]
 
 
@@ -1485,10 +1496,8 @@ async def buttons_list(interaction: discord.Interaction):
     await _reply_dismiss(interaction, "\n".join(lines))
 
 
-client.tree.add_command(buttons_group)
-
-
-pings_group = app_commands.Group(name="pings", description="Customize or silence outgoing ping alerts on this server")
+pings_group = app_commands.Group(name="pings", description="Customize or silence outgoing ping alerts on this server",
+                                  parent=config_group)
 PING_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS]
 
 
@@ -1558,10 +1567,8 @@ async def pings_list(interaction: discord.Interaction):
     await _reply_dismiss(interaction, "\n".join(lines))
 
 
-client.tree.add_command(pings_group)
-
-
-board_group = app_commands.Group(name="board", description="Customize the board's own time-remaining wording (whole-server presentation, Manage Server)")
+board_group = app_commands.Group(name="board", description="Customize the board's own time-remaining wording (whole-server presentation, Manage Server)",
+                                  parent=config_group)
 BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
                       app_commands.Choice(name="Upcoming rows", value="upcoming"),
                       app_commands.Choice(name="Both", value="both")]
@@ -1664,7 +1671,58 @@ async def board_category_list(interaction: discord.Interaction):
     await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
 
 
-client.tree.add_command(board_group)
+@board_group.command(name="hide-event", description="Remove an event from this server's board (and its pings) entirely")
+@app_commands.describe(key="Which event")
+@require_permission("board")
+async def board_hide_event(interaction: discord.Interaction, key: str):
+    if key not in BOARD_EVENT_KEYS:
+        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
+        return
+    entry = gd(interaction.guild_id)
+    if key not in entry["disabled_events"]:
+        entry["disabled_events"].append(key)
+        save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** hidden from the board on this "
+                          "server — it won't show up or ping. Updates within 5s.")
+
+
+@board_hide_event.autocomplete("key")
+async def board_hide_event_autocomplete(interaction: discord.Interaction, current: str):
+    return await board_category_set_autocomplete(interaction, current)
+
+
+@board_group.command(name="show-event", description="Bring a hidden event back onto this server's board")
+@app_commands.describe(key="Which event")
+@require_permission("board")
+async def board_show_event(interaction: discord.Interaction, key: str):
+    if key not in BOARD_EVENT_KEYS:
+        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
+        return
+    entry = gd(interaction.guild_id)
+    had = key in entry["disabled_events"]
+    if had:
+        entry["disabled_events"].remove(key)
+        save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** is back on the board."
+                          if had else f"**{DEFAULT_NAMES[key]}** wasn't hidden.")
+
+
+@board_show_event.autocomplete("key")
+async def board_show_event_autocomplete(interaction: discord.Interaction, current: str):
+    return await board_category_set_autocomplete(interaction, current)
+
+
+@board_group.command(name="hidden-list", description="Show which events are hidden from this server's board")
+async def board_hidden_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    if not entry["disabled_events"]:
+        await _reply_dismiss(interaction, "No events are hidden on this server.")
+        return
+    lines = [f"**{DEFAULT_NAMES[k]}**" for k in entry["disabled_events"]]
+    await _reply_dismiss(interaction, "\n".join(lines))
+
+
+client.tree.add_command(config_group)
 
 
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
