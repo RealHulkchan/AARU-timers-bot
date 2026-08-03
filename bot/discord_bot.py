@@ -1082,12 +1082,18 @@ async def ping_loop():
     alerts fire within ~1s of the 15m/5m mark instead of drifting late."""
     now_ts = datetime.now(MOSCOW).timestamp()
     for guild_id, entry in list(guild_data.items()):
-        if not entry.get("ping_roles"):
-            continue
-        channel = await _resolve_channel(guild_id, entry)
-        if channel is None:
-            continue
-        await _check_pings(guild_id, entry, channel, now_ts)
+        # See refresh_loop's matching try/except for why this is needed — an
+        # unhandled exception here would otherwise permanently stop ALL pings
+        # for every guild, not just this one, since tasks.loop doesn't auto-restart.
+        try:
+            if not entry.get("ping_roles"):
+                continue
+            channel = await _resolve_channel(guild_id, entry)
+            if channel is None:
+                continue
+            await _check_pings(guild_id, entry, channel, now_ts)
+        except Exception as e:
+            print(f"[PING TICK] guild {guild_id} failed: {e!r}")
 
 
 @ping_loop.before_loop
@@ -1095,46 +1101,62 @@ async def before_ping():
     await client.wait_until_ready()
 
 
+@ping_loop.error
+async def ping_loop_error(error: BaseException):
+    print(f"[LOOP] ping_loop crashed, restarting: {error!r}")
+    ping_loop.cancel()
+    await asyncio.sleep(5)   # avoid a tight crash loop if this itself keeps failing
+    ping_loop.start()
+
+
 @tasks.loop(seconds=5)
 async def refresh_loop():
     expired_any = False
     for guild_id, entry in list(guild_data.items()):
-        now_ts = datetime.now(MOSCOW).timestamp()
-        before = len(entry["custom_timers"])
-        entry["custom_timers"] = [t for t in entry["custom_timers"]
-                                   if now_ts - t["end"] <= 300]   # keep "UP!" 5 min
-        if len(entry["custom_timers"]) != before:
-            expired_any = True
-
-        if not entry.get("channel_id"):
-            continue
-
-        channel = await _resolve_channel(guild_id, entry)
-        if channel is None:
-            continue
-
-        embed = build_embed(entry)
+        # Everything for this guild is wrapped defensively: discord.py's
+        # tasks.loop STOPS PERMANENTLY (no auto-restart) the first time its
+        # coroutine raises anything uncaught — so one guild's bad/legacy data
+        # (e.g. a custom timer missing "end") would otherwise silently freeze
+        # the board for every guild forever, with no crash the user would see,
+        # just a board that stops updating/expiring timers. See also the
+        # .error() handler below as a second line of defense.
         try:
-            if entry.get("message_id"):
-                msg = await channel.fetch_message(entry["message_id"])
-                await msg.edit(embed=embed)
-            else:
-                msg = await channel.send(embed=embed, view=PresetView(entry))
-                entry["message_id"] = msg.id
-                save_data(guild_data)
-        except discord.NotFound:
-            # Someone deleted the board message by hand — stop chasing it instead
-            # of silently respawning a new one every 5s; /setup rebinds cleanly.
-            _unbind(guild_id, entry, "board message was deleted")
-        except discord.Forbidden:
-            _unbind(guild_id, entry, "lost permission to post in the board channel")
-        except discord.RateLimited:
-            # max_ratelimit_timeout makes this fire instead of blocking through a
-            # long retry — just skip this tick, the next one is only 5s away, and
-            # skipping fast keeps request capacity free for ping_loop's alerts.
-            print(f"[TICK] guild {guild_id}: rate limited, skipping this tick")
+            now_ts = datetime.now(MOSCOW).timestamp()
+            before = len(entry["custom_timers"])
+            entry["custom_timers"] = [t for t in entry["custom_timers"]
+                                       if now_ts - t.get("end", 0) <= 300]   # keep "UP!" 5 min
+            if len(entry["custom_timers"]) != before:
+                expired_any = True
+
+            if not entry.get("channel_id"):
+                continue
+
+            channel = await _resolve_channel(guild_id, entry)
+            if channel is None:
+                continue
+
+            embed = build_embed(entry)
+            try:
+                if entry.get("message_id"):
+                    msg = await channel.fetch_message(entry["message_id"])
+                    await msg.edit(embed=embed)
+                else:
+                    msg = await channel.send(embed=embed, view=PresetView(entry))
+                    entry["message_id"] = msg.id
+                    save_data(guild_data)
+            except discord.NotFound:
+                # Someone deleted the board message by hand — stop chasing it instead
+                # of silently respawning a new one every 5s; /setup rebinds cleanly.
+                _unbind(guild_id, entry, "board message was deleted")
+            except discord.Forbidden:
+                _unbind(guild_id, entry, "lost permission to post in the board channel")
+            except discord.RateLimited:
+                # max_ratelimit_timeout makes this fire instead of blocking through a
+                # long retry — just skip this tick, the next one is only 5s away, and
+                # skipping fast keeps request capacity free for ping_loop's alerts.
+                print(f"[TICK] guild {guild_id}: rate limited, skipping this tick")
         except Exception as e:
-            print(f"[TICK] guild {guild_id} failed: {e}")
+            print(f"[TICK] guild {guild_id} failed: {e!r}")
     if expired_any:
         save_data(guild_data)
 
@@ -1142,6 +1164,19 @@ async def refresh_loop():
 @refresh_loop.before_loop
 async def before_refresh():
     await client.wait_until_ready()
+
+
+@refresh_loop.error
+async def refresh_loop_error(error: BaseException):
+    # Belt-and-suspenders: the try/except above should catch everything, but if
+    # anything still slips through (or the loop's own bookkeeping fails), log it
+    # and restart the loop instead of leaving the board frozen until a manual
+    # redeploy. cancel() first — restart() alone can raise if the loop is still
+    # marked running from the failed iteration.
+    print(f"[LOOP] refresh_loop crashed, restarting: {error!r}")
+    refresh_loop.cancel()
+    await asyncio.sleep(5)   # avoid a tight crash loop if this itself keeps failing
+    refresh_loop.start()
 
 
 # ── Slash commands ───────────────────────────────────────────────────────────────
