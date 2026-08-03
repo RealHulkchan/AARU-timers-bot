@@ -43,6 +43,9 @@ Commands (all slash commands):
     /board time-format kind text     - customize board wording ({time} placeholder; kind=live|upcoming)
     /board time-reset kind           - reset one (or both) back to the language default
     /board time-list                 - show the current live/upcoming templates
+    /board category-set key category - move an event between Bosses & PVP and Upcoming Events
+    /board category-reset key        - reset an event's section back to default
+    /board category-list             - show which section every event is in on this server
 
 Russian ping alerts already use a fully-localized template ("{role} {event}
 через {time}!") by default — the event name comes from /names set as before,
@@ -140,6 +143,15 @@ EventOcc = namedtuple("EventOcc", "key icon name time_str dt end")
 # Skyfin/Kadum/Daily Reset/Abyssal Attack).
 PRIMARY_KEYS = (frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in day)
                 | {"jmg"}) - {"abyssal_attack"}
+
+
+def _event_category(entry, key):
+    """"primary" (Bosses & PVP) or "secondary" (Upcoming Events) for this guild —
+    a per-guild /board category-set override wins over the built-in default."""
+    override = entry["category_overrides"].get(key)
+    if override:
+        return override
+    return "primary" if key in PRIMARY_KEYS else "secondary"
 
 
 def _parse_span(d, t):
@@ -272,6 +284,7 @@ def gd(guild_id):
     entry.setdefault("role_channel_id", None)
     entry.setdefault("role_message_id", None)
     entry.setdefault("role_hidden", False)   # /roles hide — skip auto-posting the opt-in message
+    entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /board category-set
     return entry
 
 
@@ -315,9 +328,10 @@ PERMISSION_TARGET_DESCRIPTIONS = {
              "{role} {event} {time}). /pings disable/enable — silence a specific "
              "target's alerts without unbinding its role.",
     "board": "/board time-format — customize the board's own \"6m left\"/\"in 1h\" "
-             "wording for Live Now and Upcoming rows. /roles hide/show — remove or "
-             "repost the opt-in role message entirely. Both change how the bot "
-             "presents to the whole server, so this defaults stricter than most.",
+             "wording for Live Now and Upcoming rows. /board category-set — move an "
+             "event between Bosses & PVP and Upcoming Events. /roles hide/show — "
+             "remove or repost the opt-in role message entirely. All change how the "
+             "bot presents to the whole server, so this defaults stricter than most.",
 }
 # setup/language/board default stricter (Manage Server) than the rest — each
 # changes how the bot presents to the WHOLE server (board layout, entire
@@ -421,6 +435,7 @@ def _collect_default_names():
 
 
 DEFAULT_NAMES = _collect_default_names()
+BOARD_EVENT_KEYS = frozenset(DEFAULT_NAMES.keys())   # captured before the ping-only targets below are added in
 DEFAULT_NAMES.update({"guild_boss": "Guild Boss", "morpheus": "Morpheus",
                        "rangora": "Rangora", "halcy": "Halcy", "tokens": "Tokens"})
 
@@ -592,9 +607,11 @@ def build_embed(entry):
             custom_lines.append(f"⏱ **{name}** — <t:{epoch}:t> · MSK {msk_t} · "
                                  f"{_render_time_text(entry, 'live', fmt_rem(rem))}")
 
+    is_primary = lambda key: _event_category(entry, key) == "primary"   # noqa: E731
+
     active = active_occurrences(now)
-    active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
-    active_secondary = [o for o in active if o.key not in PRIMARY_KEYS]
+    active_primary   = [o for o in active if is_primary(o.key)]
+    active_secondary = [o for o in active if not is_primary(o.key)]
     active_primary_keys   = {o.key for o in active_primary}
     active_secondary_keys = {o.key for o in active_secondary}
 
@@ -602,9 +619,9 @@ def build_embed(entry):
     # its NEXT occurrence (the one after the one currently running) shows up there
     # too, which reads as if it's about to happen again imminently.
     occs = upcoming_occurrences(now, count=60)
-    up_primary   = _dedupe_next(o for o in occs if o.key in PRIMARY_KEYS
+    up_primary   = _dedupe_next(o for o in occs if is_primary(o.key)
                                  and o.key not in active_primary_keys)[:UPCOMING_PER_SECTION]
-    up_secondary = _dedupe_next(o for o in occs if o.key not in PRIMARY_KEYS
+    up_secondary = _dedupe_next(o for o in occs if not is_primary(o.key)
                                  and o.key not in active_secondary_keys)[:UPCOMING_PER_SECTION]
 
     parts = [f"# {ui(entry, 'title')} — {ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
@@ -1582,6 +1599,64 @@ async def board_time_list(interaction: discord.Interaction):
     live = entry["live_time_format"] or f"{ui(entry, 'live_time_format')} (default)"
     upcoming = entry["upcoming_time_format"] or f"{ui(entry, 'upcoming_time_format')} (default)"
     await _reply_dismiss(interaction, f"Live now: {live}\nUpcoming: {upcoming}")
+
+
+BOARD_CATEGORY_CHOICES = [app_commands.Choice(name="Bosses & PVP", value="primary"),
+                          app_commands.Choice(name="Upcoming Events", value="secondary")]
+
+
+@board_group.command(name="category-set", description="Move an event between Bosses & PVP and Upcoming Events on this server")
+@app_commands.describe(key="Which event", category="Which section to show it in")
+@app_commands.choices(category=BOARD_CATEGORY_CHOICES)
+@require_permission("board")
+async def board_category_set(interaction: discord.Interaction, key: str, category: app_commands.Choice[str]):
+    if key not in BOARD_EVENT_KEYS:
+        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
+        return
+    entry = gd(interaction.guild_id)
+    entry["category_overrides"][key] = category.value
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** moved to **{category.name}** "
+                          "on this server. Updates within 5s.")
+
+
+@board_category_set.autocomplete("key")
+async def board_category_set_autocomplete(interaction: discord.Interaction, current: str):
+    current = current.lower()
+    return [app_commands.Choice(name=DEFAULT_NAMES[k], value=k) for k in BOARD_EVENT_KEYS
+            if current in k.lower() or current in DEFAULT_NAMES[k].lower()][:25]
+
+
+@board_group.command(name="category-reset", description="Reset an event's section back to the default on this server")
+@app_commands.describe(key="Which event")
+@require_permission("board")
+async def board_category_reset(interaction: discord.Interaction, key: str):
+    if key not in BOARD_EVENT_KEYS:
+        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
+        return
+    entry = gd(interaction.guild_id)
+    had = entry["category_overrides"].pop(key, None) is not None
+    save_data(guild_data)
+    default_label = "Bosses & PVP" if key in PRIMARY_KEYS else "Upcoming Events"
+    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** reset to its default section "
+                          f"(**{default_label}**)." if had else f"**{DEFAULT_NAMES[key]}** wasn't moved.")
+
+
+@board_category_reset.autocomplete("key")
+async def board_category_reset_autocomplete(interaction: discord.Interaction, current: str):
+    return await board_category_set_autocomplete(interaction, current)
+
+
+@board_group.command(name="category-list", description="Show which section every event is in on this server")
+async def board_category_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    lines = []
+    for key in sorted(BOARD_EVENT_KEYS, key=lambda k: DEFAULT_NAMES[k]):
+        section = "Bosses & PVP" if _event_category(entry, key) == "primary" else "Upcoming Events"
+        moved = " *(moved)*" if key in entry["category_overrides"] else ""
+        lines.append(f"**{DEFAULT_NAMES[key]}** — {section}{moved}")
+    text = "\n".join(lines)
+    await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
 
 
 client.tree.add_command(board_group)
