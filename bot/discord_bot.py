@@ -296,8 +296,8 @@ DEFAULT_PERMISSION_LEVELS = {
     "clear_cmd": "manage_messages",
     "buttons": "manage_messages",
 }
-PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "manage_messages": "Manage Messages",
-                            "manage_server": "Manage Server"}
+PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "send_messages": "Send Messages",
+                            "manage_messages": "Manage Messages", "manage_server": "Manage Server"}
 
 
 def _permission_level(entry, target):
@@ -307,6 +307,8 @@ def _permission_level(entry, target):
 def _has_permission_level(member: discord.Member, level: str) -> bool:
     if level == "everyone":
         return True
+    if level == "send_messages":
+        return member.guild_permissions.send_messages
     if level == "manage_messages":
         return member.guild_permissions.manage_messages
     if level == "manage_server":
