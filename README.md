@@ -10,19 +10,29 @@
 ## Commands
 | Command | Permission | Does |
 |---|---|---|
-| `/setup` | Manage Messages | Post/move the board + opt-in role message here |
+| `/setup` | Manage Server | Post/move the board + opt-in role message here |
 | `/clear` | Manage Messages | Delete the bot's own messages in this channel |
 | `/events` | — | Private snapshot of the board |
 | `/timer start/list/cancel` | — (configure via Integrations tab if wanted) | Manual countdown timers |
-| `/roles set/clear/list` | Manage Messages | Bind a role to ping 15m/5m before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy |
+| `/roles set/clear/list` | Manage Messages | Bind a role to ping before Guild Boss/JMG/Morpheus/Rangora/Skyfin/Halcy/Tokens |
 | `/roles message` | Manage Messages | Re-post just the self-assign role buttons |
-| `/language set/show` | Manage Messages (set only) | Toggle board/pings between English/Russian |
+| `/roles hide/show` | Manage Server | Remove/repost the whole opt-in role message |
+| `/language set/show` | Manage Server (set only) | Toggle board/pings between English/Russian |
 | `/names set/clear/list` | Manage Messages (set/clear only) | Rename any event/boss per language |
+| `/permissions set/clear/list` | Manage Server (hardcoded) | Set the required level for any of the above, per server |
+| `/buttons hide/show/list` | Manage Messages | Hide/show individual preset/role buttons |
+| `/pings message/message-reset/disable/enable/list` | Manage Messages | Custom ping wording; silence a target without unbinding its role |
+| `/board time-format/time-reset/time-list` | Manage Server | Customize the board's own "6m left"/"in 1h" wording |
 
 Preset buttons (`+ Guild Boss/Morph/Rangora`) require Manage Messages to click.
 Role self-assign buttons are open to everyone by design.
+Anything that changes the bot's presentation for the whole server (`/setup`,
+`/language set`, `/board`, `/roles hide|show`) defaults to Manage Server;
+narrower per-binding/per-timer actions default to Manage Messages. All are
+per-server overridable via `/permissions`.
 
-After `/language set`, run `/setup` again to refresh button labels.
+After `/language set` or a button/label change, run `/setup` (or `/roles
+message`) again to repost a fresh message with the update.
 
 ## Troubleshooting
 - **Board won't post / "Missing Access"**: check channel-specific permission

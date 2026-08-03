@@ -7,11 +7,13 @@
 | `/setup` | Опубликовать/переместить таймер-доску + сообщение с ролями в этот канал |
 | `/timer start / list / cancel` | Ручные таймеры обратного отсчёта |
 | `/roles set / clear / list / message` | Привязать/отвязать роль для пинга; переопубликовать кнопки самозаписи |
+| `/roles hide / show` | Удалить/переопубликовать всё сообщение с подпиской на роли |
 | `/language set / show` | Переключить язык (английский/русский) |
 | `/names set / clear / list` | Свои названия событий/боссов на сервере, по языкам |
 | `/permissions set / clear / list` | Уровень прав для каждой защищённой функции, отдельно на сервер |
 | `/buttons hide / show / list` | Скрыть/показать отдельные кнопки |
 | `/pings message / message-reset / disable / enable / list` | Свой текст пинга; отключить пинг для цели без отвязки роли |
+| `/board time-format / time-reset / time-list` | Свой текст «осталось 6м»/«через 1ч» на доске |
 | `/events` | Личный снимок доски |
 | `/clear` | Удалить сообщения самого бота в этом канале |
 
@@ -21,11 +23,14 @@ Guild Boss, JMG, Morpheus, Rangora, Skyfin, Halcy (= Golden Plains Battle), Toke
 
 ## Цели для прав (`/permissions set target:<x>`)
 
-preset_timers, timer, setup, roles, language, names, clear_cmd, buttons, pings — для каждой отдельно задаётся уровень: Everyone / Send Messages / Manage Messages / Manage Server. По умолчанию: кнопки-пресеты = Everyone, всё остальное = Manage Messages. Сама `/permissions` жёстко закреплена на Manage Server.
+preset_timers, timer, setup, roles, language, names, clear_cmd, buttons, pings, board — для каждой отдельно задаётся уровень: Everyone / Send Messages / Manage Messages / Manage Server.
+
+По умолчанию: кнопки-пресеты = Everyone. `setup`, `language`, `board` (включает и `/roles hide|show`) = Manage Server — эти команды меняют то, как бот выглядит для *всего сервера* (расположение, язык, текст или само наличие сообщения с ролями). Всё остальное = Manage Messages. Сама `/permissions` жёстко закреплена на Manage Server.
 
 ## Заметки
 
 - Доска обновляется каждые 5с; проверка пингов идёт в отдельном цикле раз в 1с.
 - Переименование через `/names set` никогда не ломает логику — внутренние ключи фиксированы, меняется только отображаемый текст.
 - `/clear` удаляет только сообщения самого бота, чужие никогда не трогает.
-- После смены кнопок/подписей нужно переопубликовать (`/setup` или `/roles message`), чтобы изменения появились на новом сообщении.
+- После смены кнопок/подписей/формулировок нужно переопубликовать (`/setup` или `/roles message`), чтобы изменения появились на новом сообщении.
+- Русские пинги и текст на доске («осталось {time}» / «через {time}») включены по умолчанию при `/language set` на русский — можно переопределить отдельно через `/pings message` / `/board time-format`.
