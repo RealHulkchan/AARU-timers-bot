@@ -12,53 +12,51 @@ Setup:
 
 Commands (all slash commands). Everything except /setup, /timer, and /clear
 nests under one top-level /config so the "/" picker isn't a wall of
-top-level entries — e.g. "/roles set" below is really "/config roles set":
+top-level entries. Within /config, each subcommand also bundles what used to
+be several separate commands into one `action` dropdown parameter (Set/Clear/
+List/Hide/Show/etc.) so the picker stays short even filtered — e.g.
+"/roles set target role" below is really "/config roles ping action:Set
+target role":
 
-    /setup                             - post the live timer board in this channel
-    /timer start name hours minutes    - start a custom countdown (name autocompletes the 3 presets,
-                                          localized; any other name also works). If one by that name
-                                          already appeared (elapsed), kills and replaces it.
-    /timer list                        - list running custom timers
-    /timer cancel name                 - cancel a running custom timer (name autocompletes from
-                                          whatever's currently running, localized)
-    /clear                             - delete this bot's own messages in the channel
+    /setup                              - post the live timer board in this channel
+    /timer start name hours minutes     - start a custom countdown (name autocompletes the 3 presets,
+                                           localized; any other name also works). If one by that name
+                                           already appeared (elapsed), kills and replaces it.
+    /timer list                         - list running custom timers
+    /timer cancel name                  - cancel a running custom timer (name autocompletes from
+                                           whatever's currently running, localized)
+    /clear                              - delete this bot's own messages in the channel
 
-    /config roles set target role      - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/
-                                          Halcy starts (15m+5m), or Prairie/Invasion (Tokens, 30m+5m
-                                          — one role covers both events)
-    /config roles clear target         - stop pinging for that target
-    /config roles list                 - show configured ping roles
-    /config roles message              - post a permanent self-assign button message for the roles
-    /config roles hide                 - delete the opt-in role message; /setup won't repost it
-    /config roles show                 - repost it and clear the hidden flag
-    /config language set|show          - toggle the board/pings between English and Russian
-    /config names set key language text- set this server's own name for an event/boss in a language
-    /config names clear key language   - reset an event/boss's name back to default
-    /config names list                 - show every event/boss's name in both languages
-    /config permissions set target lvl - set the permission level a command/button needs here
-    /config permissions clear target   - reset a command/button's level back to default
-    /config permissions list           - show every command/button's current level
-    /config buttons hide|show button   - hide/un-hide a preset/role button (repost to apply)
-    /config buttons list               - show which buttons are hidden here
-    /config pings message text         - set a custom ping template ({role} {event} {time})
-    /config pings message-reset        - reset the ping template to the language default
-    /config pings disable|enable target- silence/restore a target's alerts without unbinding its role
-    /config pings list                 - show the template and which targets are silenced
-    /config board time-format kind text- customize board wording ({time}; kind=live|upcoming|appeared)
-    /config board time-reset kind      - reset one (or all) back to the language default
-    /config board time-list            - show the current live/upcoming/appeared templates
-    /config board category-set key cat - move an event between Bosses & PVP and Upcoming Events
-    /config board category-reset key   - reset an event's section back to default
-    /config board category-list        - show which section every event is in here
-    /config board hide-event key       - remove an event from the board (and its pings) entirely
-    /config board show-event key       - bring it back
-    /config board hidden-list          - show which events are hidden here
+    /config roles ping action target role - action:Set pings `role` before Guild Boss/JMG/Morpheus/
+                                           Rangora/Skyfin/Halcy starts (15m+5m), or Prairie/Invasion
+                                           (Tokens, 30m+5m — one role covers both events);
+                                           action:Clear unbinds; action:List shows all
+    /config roles message               - post a permanent self-assign button message for the roles
+    /config roles visibility action     - action:Hide deletes the opt-in role message (/setup won't
+                                           repost it); action:Show reposts it
+    /config language action language    - action:Set toggles English/Russian; action:Show shows current
+    /config names action key language text - action:Set gives an event/boss its own name in a language;
+                                           action:Clear resets one; action:List shows all in both languages
+    /config permissions action target level - action:Set sets the permission level a command/button
+                                           needs here; action:Clear resets it; action:List shows all
+    /config buttons action button        - action:Hide/Show a preset/role button (repost to apply);
+                                           action:List shows which are hidden
+    /config pings message action text   - action:Set sets a custom ping template ({role} {event} {time});
+                                           action:Reset restores the language default
+    /config pings alerts action target  - action:Disable/Enable a target's alerts without unbinding its
+                                           role; action:List shows the template and silenced targets
+    /config board wording action kind text - action:Set customizes board wording ({time}; kind=live|
+                                           upcoming|appeared); action:Reset restores default; action:List shows all
+    /config board category action key category - action:Set moves an event between Bosses & PVP and
+                                           Upcoming Events; action:Reset restores default; action:List shows all
+    /config board events action key     - action:Hide removes an event from the board (and its pings)
+                                           entirely; action:Show brings it back; action:List shows hidden
 
 Russian ping alerts already use a fully-localized template ("{role} {event}
-через {time}!") by default — the event name comes from /config names set as
+через {time}!") by default — the event name comes from /config names as
 before, only the surrounding "in X minutes"-style wording was English-only
 until now. The board's own "6m left"/"in 1h" wording is customizable the
-same way via /config board time-format, also localized to Russian by default.
+same way via /config board wording, also localized to Russian by default.
 
 A custom (Guild Boss/Morpheus/Rangora/etc.) timer that reaches zero doesn't
 just show a static "UP!" — it switches to counting UP ("Appeared! 3m elapsed"
@@ -68,10 +66,10 @@ the old entry and replaces it with a fresh countdown, instead of running both
 side by side.
 
 Permission levels are per-guild and configurable — see /config permissions
-above. Defaults: preset buttons = everyone; /setup, /config language set,
-and /config board (incl. /config roles hide|show) = Manage Server
+above. Defaults: preset buttons = everyone; /setup, /config language,
+and /config board (incl. /config roles visibility) = Manage Server
 (whole-server presentation); everything else (/timer, /config roles
-set|clear|message, /config names set|clear, /clear, /config buttons,
+ping|message, /config names, /clear, /config buttons,
 /config pings) = Manage Messages. /config permissions itself always
 requires Manage Server, hardcoded, so it can't be used to lower its own bar.
 """
@@ -81,6 +79,7 @@ import json
 import asyncio
 from datetime import datetime, timedelta, timezone
 from collections import namedtuple
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -162,7 +161,7 @@ PRIMARY_KEYS = (frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in
 
 def _event_category(entry, key):
     """Returns "primary" (Bosses & PVP) or "secondary" (Upcoming Events) for this
-    guild — a per-guild /config board category-set override wins over the
+    guild — a per-guild /config board category override wins over the
     built-in default."""
     override = entry["category_overrides"].get(key)
     if override:
@@ -300,29 +299,29 @@ def gd(guild_id):
     entry.setdefault("appeared_time_format", None)  # None = language default ("Appeared! {time} elapsed")
     entry.setdefault("role_channel_id", None)
     entry.setdefault("role_message_id", None)
-    entry.setdefault("role_hidden", False)   # /config roles hide — skip auto-posting the opt-in message
-    entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /config board category-set
-    entry.setdefault("disabled_events", [])   # event keys fully hidden (board + pings) — /config board hide-event
+    entry.setdefault("role_hidden", False)   # /config roles visibility Hide — skip auto-posting the opt-in message
+    entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /config board category
+    entry.setdefault("disabled_events", [])   # event keys fully hidden (board + pings) — /config board events Hide
     return entry
 
 
 # Per-guild-overridable permission levels for admin-facing commands/buttons.
 # "everyone" = no restriction, "manage_messages"/"manage_server" = that Discord
 # permission required. Defaults here match this server's current setup; any
-# guild can override any target independently via /config permissions set.
+# guild can override any target independently via /config permissions action:Set.
 # All /config-nested command names below include that prefix since that's what
 # actually works — /roles, /pings, etc. don't exist as bare top-level commands.
 PERMISSION_TARGETS = [
     ("preset_timers", "+ Guild Boss/Morph/Rangora buttons"),
     ("timer", "/timer start, list, cancel"),
     ("setup", "/setup"),
-    ("roles", "/config roles set, clear, message"),
-    ("language", "/config language set"),
-    ("names", "/config names set, clear"),
+    ("roles", "/config roles ping, message"),
+    ("language", "/config language"),
+    ("names", "/config names"),
     ("clear_cmd", "/clear"),
-    ("buttons", "/config buttons hide, show"),
-    ("pings", "/config pings message, disable, enable"),
-    ("board", "/config board time-format, time-reset; /config roles hide, show"),
+    ("buttons", "/config buttons"),
+    ("pings", "/config pings message, alerts"),
+    ("board", "/config board wording, category; /config roles visibility"),
 ]
 PERMISSION_TARGET_DESCRIPTIONS = {
     "preset_timers": "The buttons under the board that start a preset Guild Boss "
@@ -332,28 +331,28 @@ PERMISSION_TARGET_DESCRIPTIONS = {
     "setup": "Posts (or moves) the live timer board and the self-assign role "
               "message into the current channel. Doesn't delete an existing board "
               "elsewhere — use /clear for that.",
-    "roles": "/config roles set — bind a Discord role to ping before a timer/event "
-             "starts (15m+5m, or 30m+5m for Tokens). /config roles clear — unbind "
-             "one. /config roles message — repost just the self-assign role "
+    "roles": "/config roles ping action:Set — bind a Discord role to ping before a "
+             "timer/event starts (15m+5m, or 30m+5m for Tokens). action:Clear — "
+             "unbind one. /config roles message — repost just the self-assign role "
              "buttons without touching the board.",
-    "language": "/config language set — switches the board, pings, and button "
+    "language": "/config language action:Set — switches the board, pings, and button "
                 "labels between English and Russian for this server.",
-    "names": "/config names set — give an event/boss its own name in a language "
-             "(e.g. a nickname like \"Halcy\"). /config names clear — reset one "
+    "names": "/config names action:Set — give an event/boss its own name in a language "
+             "(e.g. a nickname like \"Halcy\"). action:Clear — reset one "
              "back to default.",
     "clear_cmd": "Deletes this bot's own messages in the current channel (old "
                  "board posts, ping alerts, leftover confirmations) — never "
                  "other users' messages.",
-    "buttons": "/config buttons hide/show — controls which individual preset/role "
+    "buttons": "/config buttons action:Hide/Show — controls which individual preset/role "
                "buttons appear on this server's board and role message.",
-    "pings": "/config pings message set — customize the outgoing ping text "
-             "(placeholders {role} {event} {time}). /config pings disable/enable "
-             "— silence a specific target's alerts without unbinding its role.",
-    "board": "/config board time-format — customize the board's own \"6m left\"/"
+    "pings": "/config pings message action:Set — customize the outgoing ping text "
+             "(placeholders {role} {event} {time}). /config pings alerts "
+             "action:Disable/Enable — silence a specific target's alerts without unbinding its role.",
+    "board": "/config board wording — customize the board's own \"6m left\"/"
              "\"in 1h\" wording for Live Now, Upcoming, and Appeared rows. "
-             "/config board category-set — move an event between Bosses & PVP "
-             "and Upcoming Events. /config board hide-event — remove an event "
-             "from the board and its pings entirely. /config roles hide/show — "
+             "/config board category — move an event between Bosses & PVP "
+             "and Upcoming Events. /config board events action:Hide — remove an event "
+             "from the board and its pings entirely. /config roles visibility — "
              "remove or repost the opt-in role message entirely. All change how "
              "the bot presents to the whole server, so this defaults stricter "
              "than most.",
@@ -382,26 +381,31 @@ def _permission_level(entry, target):
     return entry["permissions"].get(target, DEFAULT_PERMISSION_LEVELS[target])
 
 
-def _has_permission_level(member: discord.Member, level: str) -> bool:
+def _has_permission_level(interaction: discord.Interaction, level: str) -> bool:
     if level == "everyone":
         return True
+    # interaction.permissions is Discord's own resolved permission set for this
+    # user in this specific channel — unlike member.guild_permissions, it folds
+    # in channel/category permission overwrites (e.g. a channel-level Send
+    # Messages deny), so a role-wide grant can't bypass a channel-level block.
+    perms = interaction.permissions
     if level == "send_messages":
-        return member.guild_permissions.send_messages
+        return perms.send_messages
     if level == "manage_messages":
-        return member.guild_permissions.manage_messages
+        return perms.manage_messages
     if level == "manage_server":
-        return member.guild_permissions.manage_guild
+        return perms.manage_guild
     return False
 
 
 def require_permission(target):
     """App-command check that reads the guild's configured level for `target`
     (falling back to its default) instead of a level fixed at decoration time —
-    this is what makes /config permissions set actually change enforcement per guild."""
+    this is what makes /config permissions action:Set actually change enforcement per guild."""
     async def predicate(interaction: discord.Interaction) -> bool:
         entry = gd(interaction.guild_id)
         level = _permission_level(entry, target)
-        if _has_permission_level(interaction.user, level):
+        if _has_permission_level(interaction, level):
             return True
         raise app_commands.CheckFailure(
             f"`[403 Forbidden]` This requires the **{PERMISSION_LEVEL_LABELS[level]}** "
@@ -431,7 +435,7 @@ PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
                 ("skyfin", "Skyfin"), ("halcy", "Halcy"),
                 ("tokens", "Tokens")]
 # Shared by every command that needs a "which ping target" dropdown
-# (/config roles set|clear, /config pings disable|enable) — built once here
+# (/config roles ping, /config pings alerts) — built once here
 # instead of each command rebuilding the same list inline.
 PING_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS]
 SCHEDULE_PING_KEYS = {"jmg", "skyfin", "halcy", "tokens"}
@@ -442,12 +446,12 @@ NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
 
 
 # ── Localization ─────────────────────────────────────────────────────────────────
-# Every event/boss name is admin-editable per language via /config names set — these are
+# Every event/boss name is admin-editable per language via /config names — these are
 # just the defaults. English defaults are pulled straight from the schedule data
 # (one source of truth for spelling) plus the four custom-timer/ping-only targets.
 # DEFAULT_NAMES_RU is a provided community translation (not guessed) covering the
 # weekly bosses/sieges, the fixed daily events, most in-game-clock dailies, and
-# two of the four ping-only targets; /config names set still overrides either on a
+# two of the four ping-only targets; /config names still overrides either on a
 # per-guild basis, and still covers anything not listed here (Normal CR, and the
 # morpheus/halcy ping-only targets, have no built-in Russian name yet).
 def _collect_default_names():
@@ -507,7 +511,7 @@ UI = {
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
                          "15 and 5 minutes before that timer starts (30 and 5 for "
                          "Prairie/Invasion).\n\n"
-                         "*An admin binds each button to a role with `/config roles set`.*"),
+                         "*An admin binds each button to a role with `/config roles ping`.*"),
         "ping_template": "{role} **{event}** in {time}!",
         "live_time_format": "{time} left",
         "upcoming_time_format": "in {time}",
@@ -526,7 +530,7 @@ UI = {
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
                          "уведомление за 15 и за 5 минут до начала (за 30 и за 5 минут "
                          "для Prairie/Invasion).\n\n"
-                         "*Админ привязывает роль к кнопке командой `/config roles set`.*"),
+                         "*Админ привязывает роль к кнопке командой `/config roles ping`.*"),
         "ping_template": "{role} **{event}** через {time}!",
         "live_time_format": "осталось {time}",
         "upcoming_time_format": "через {time}",
@@ -574,7 +578,7 @@ CUSTOM_TIMER_KEEP_SECS = 2 * 3600
 
 
 def _render_time_text(entry, kind, time_str):
-    """Guild's own wording (via /config board time-format) for the trailing time text
+    """Guild's own wording (via /config board wording) for the trailing time text
     on a board row — "live" -> default "{time} left", "upcoming" -> default
     "in {time}", "appeared" -> default "Appeared! {time} elapsed". Falls back to
     the language default on a malformed override (any .format() failure, not
@@ -721,7 +725,7 @@ async def _reply_dismiss(interaction: discord.Interaction, content: str = None, 
 # The stored timer NAME is always the canonical English key text (it's how
 # NAME_TO_PING_KEY matches it for pings/board display) — only the visible button
 # LABEL and the confirmation message get translated. This is the whole point of
-# the key/name split: renaming a boss via /config names set can never break matching,
+# the key/name split: renaming a boss via /config names can never break matching,
 # because matching never looks at the display name, only at this fixed literal.
 PRESET_BUTTON_KEYS = {"preset_guild_boss": "guild_boss", "preset_morph": "morpheus",
                        "preset_rangora": "rangora"}
@@ -743,11 +747,11 @@ class PresetView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Runs before any button in this view. Level is per-guild configurable
-        via /config permissions set target:preset_timers — defaults to "everyone".
+        via /config permissions action:Set target:preset_timers — defaults to "everyone".
         RoleButtonView (self-assign ping roles) is untouched and stays open."""
         entry = gd(interaction.guild_id)
         level = _permission_level(entry, "preset_timers")
-        if _has_permission_level(interaction.user, level):
+        if _has_permission_level(interaction, level):
             return True
         await _reply_dismiss(interaction, f"`[403 Forbidden]` Starting a preset timer requires "
                               f"the **{PERMISSION_LEVEL_LABELS[level]}** permission.")
@@ -801,8 +805,9 @@ def build_role_embed(entry):
 
 
 async def _post_role_message(channel, entry):
-    """Posts the opt-in role embed and records where it landed so /roles hide
-    can find and delete it later. Shared by /setup, /roles message, /roles show."""
+    """Posts the opt-in role embed and records where it landed so /config roles
+    visibility action:Hide can find and delete it later. Shared by /setup,
+    /config roles message, /config roles visibility action:Show."""
     msg = await channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
     entry["role_channel_id"] = channel.id
     entry["role_message_id"] = msg.id
@@ -818,7 +823,7 @@ ROLE_BUTTON_KEYS = {"role_jmg": "jmg", "role_rangora": "rangora", "role_morpheus
 
 # Self-assign buttons for the ping-role targets (posted once via /config roles
 # message, stays forever). Toggles whatever role is currently bound via
-# /config roles set — no
+# /config roles ping — no
 # re-post needed if the role binding changes later.
 class RoleButtonView(discord.ui.View):
     def __init__(self, entry=None):
@@ -840,7 +845,7 @@ class RoleButtonView(discord.ui.View):
         role_id = entry["ping_roles"].get(key)
         if not role_id:
             await _reply_dismiss(interaction, f"No role is bound to **{label}** yet — "
-                                  f"an admin needs to run `/config roles set`.")
+                                  f"an admin needs to run `/config roles ping`.")
             return
         role = interaction.guild.get_role(role_id)
         if role is None:
@@ -998,7 +1003,7 @@ def _alert_timing_text(key):
 
 
 def _render_ping_message(entry, role_id, label, window_label):
-    """Guild's own template (set via /config pings message set) if any, else the
+    """Guild's own template (set via /config pings message action:Set) if any, else the
     language's default. Falls back to the default on any malformed custom
     template (e.g. a typo'd placeholder or unbalanced brace) rather than ever
     failing to ping."""
@@ -1013,7 +1018,7 @@ def _render_ping_message(entry, role_id, label, window_label):
 async def _check_pings(guild_id, entry, channel, now_ts):
     """Ping the configured role before a timer/event starts: 15m+5m for custom
     timers and most schedule targets, 30m+5m for Tokens (Prairie/Invasion).
-    Skips any target listed in entry["disabled_pings"] (/config pings disable)."""
+    Skips any target listed in entry["disabled_pings"] (/config pings alerts action:Disable)."""
     ping_roles = entry["ping_roles"]
     if not ping_roles:
         return
@@ -1035,7 +1040,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
     now_dt = datetime.now(MOSCOW)
     # count=60 so a schedule target isn't missed just because other events fill
     # the first few nearer-term slots. disabled=disabled_events (board-hidden, not
-    # to be confused with `disabled` above which is /config pings disable's per-target list)
+    # to be confused with `disabled` above which is /config pings alerts Disable's per-target list)
     # so a fully-hidden event can't still ping.
     occs = upcoming_occurrences(now_dt, count=60, disabled=entry["disabled_events"])
 
@@ -1221,7 +1226,7 @@ async def refresh_loop_error(error: BaseException):
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     # Posted first so it lands above the board (Discord orders by send time).
-    # Skipped entirely if an admin hid it via /roles hide.
+    # Skipped entirely if an admin hid it via /config roles visibility action:Hide.
     if not entry["role_hidden"]:
         await _post_role_message(interaction.channel, entry)
     embed = build_embed(entry)
@@ -1356,37 +1361,41 @@ roles_group = app_commands.Group(name="roles", description="Configure which role
                                   parent=config_group)
 
 
-@roles_group.command(name="set", description="Ping a role before this timer/event starts (15m+5m, or 30m+5m for Tokens)")
-@app_commands.describe(target="Which timer/event", role="Role to ping")
-@app_commands.choices(target=PING_TARGET_CHOICES)
+ROLES_PING_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                             app_commands.Choice(name="Clear", value="clear"),
+                             app_commands.Choice(name="List", value="list")]
+
+
+@roles_group.command(name="ping", description="Bind, unbind, or list which role gets pinged before a timer/event")
+@app_commands.describe(action="Set, Clear, or List", target="Which timer/event (Set/Clear only)",
+                        role="Role to ping (Set only)")
+@app_commands.choices(action=ROLES_PING_ACTION_CHOICES, target=PING_TARGET_CHOICES)
 @require_permission("roles")
-async def roles_set(interaction: discord.Interaction, target: app_commands.Choice[str], role: discord.Role):
+async def roles_ping(interaction: discord.Interaction, action: app_commands.Choice[str],
+                      target: Optional[app_commands.Choice[str]] = None, role: Optional[discord.Role] = None):
     entry = gd(interaction.guild_id)
-    entry["ping_roles"][target.value] = role.id
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** will now ping {role.mention} "
-                          f"{_alert_timing_text(target.value)} before it starts.")
-
-
-@roles_group.command(name="clear", description="Stop pinging a role for this timer")
-@app_commands.describe(target="Which timer/event")
-@app_commands.choices(target=PING_TARGET_CHOICES)
-@require_permission("roles")
-async def roles_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
-    entry = gd(interaction.guild_id)
-    had = entry["ping_roles"].pop(target.value, None) is not None
-    name = get_name(entry, target.value)
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"Cleared the ping role for **{name}**."
-                          if had else f"**{name}** had no ping role set.")
-
-
-@roles_group.command(name="list", description="Show configured ping roles")
-async def roles_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    lines = [f"**{get_name(entry, key)}** — " + (f"<@&{entry['ping_roles'][key]}>" if key in entry["ping_roles"] else "not set")
-             for key, label in PING_TARGETS]
-    await _reply_dismiss(interaction, "\n".join(lines))
+    if action.value == "list":
+        lines = [f"**{get_name(entry, key)}** — " + (f"<@&{entry['ping_roles'][key]}>" if key in entry["ping_roles"] else "not set")
+                 for key, label in PING_TARGETS]
+        await _reply_dismiss(interaction, "\n".join(lines))
+        return
+    if target is None:
+        await _reply_dismiss(interaction, "`target` is required for Set/Clear.")
+        return
+    if action.value == "set":
+        if role is None:
+            await _reply_dismiss(interaction, "`role` is required to Set a ping role.")
+            return
+        entry["ping_roles"][target.value] = role.id
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** will now ping {role.mention} "
+                              f"{_alert_timing_text(target.value)} before it starts.")
+    else:
+        had = entry["ping_roles"].pop(target.value, None) is not None
+        name = get_name(entry, target.value)
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"Cleared the ping role for **{name}**."
+                              if had else f"**{name}** had no ping role set.")
 
 
 @roles_group.command(name="message", description="Post a permanent self-assign button message for the four ping roles")
@@ -1397,10 +1406,17 @@ async def roles_message(interaction: discord.Interaction):
     await _reply_dismiss(interaction, "Posted.")
 
 
-@roles_group.command(name="hide", description="Remove the opt-in role message and stop /setup reposting it")
+@roles_group.command(name="visibility", description="Remove or repost the whole opt-in role message on this server")
+@app_commands.describe(action="Hide (remove and stop /setup reposting it) or Show (repost it)")
+@app_commands.choices(action=[app_commands.Choice(name="Hide", value="hide"),
+                               app_commands.Choice(name="Show", value="show")])
 @require_permission("board")
-async def roles_hide(interaction: discord.Interaction):
+async def roles_visibility(interaction: discord.Interaction, action: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
+    if action.value == "show":
+        await _post_role_message(interaction.channel, entry)
+        await _reply_dismiss(interaction, "Role message shown again.")
+        return
     entry["role_hidden"] = True
     deleted = False
     if entry["role_channel_id"] and entry["role_message_id"]:
@@ -1415,263 +1431,248 @@ async def roles_hide(interaction: discord.Interaction):
     entry["role_message_id"] = None
     save_data(guild_data)
     await _reply_dismiss(interaction, "Role message hidden" + (" and deleted." if deleted else
-                          " (already gone). ") + " /setup won't repost it until /config roles show.")
+                          " (already gone). ") + " /setup won't repost it until /config roles visibility show.")
 
 
-@roles_group.command(name="show", description="Repost the opt-in role message (same as /roles message)")
-@require_permission("board")
-async def roles_show(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    await _post_role_message(interaction.channel, entry)
-    await _reply_dismiss(interaction, "Role message shown again.")
-
-
-language_group = app_commands.Group(name="language", description="Choose the board/ping language (English or Russian)",
-                                     parent=config_group)
 LANGUAGE_CHOICES = [app_commands.Choice(name="English", value="en"),
                      app_commands.Choice(name="Russian", value="ru")]
+LANGUAGE_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                           app_commands.Choice(name="Show", value="show")]
 
 
-@language_group.command(name="set", description="Set the board and ping language for this server")
-@app_commands.describe(language="English or Russian")
-@app_commands.choices(language=LANGUAGE_CHOICES)
+@config_group.command(name="language", description="Set or show the board and ping language for this server")
+@app_commands.describe(action="Set or Show", language="English or Russian (Set only)")
+@app_commands.choices(action=LANGUAGE_ACTION_CHOICES, language=LANGUAGE_CHOICES)
 @require_permission("language")
-async def language_set(interaction: discord.Interaction, language: app_commands.Choice[str]):
+async def language_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
+                        language: Optional[app_commands.Choice[str]] = None):
     entry = gd(interaction.guild_id)
+    if action.value == "show":
+        name = "Russian" if entry.get("language") == "ru" else "English"
+        await _reply_dismiss(interaction, f"Current language: **{name}**.")
+        return
+    if language is None:
+        await _reply_dismiss(interaction, "`language` is required to Set.")
+        return
     entry["language"] = language.value
     save_data(guild_data)
     await _reply_dismiss(interaction, f"Language set to **{language.name}**. The board updates within "
                           "5s; run `/setup` again to refresh button labels on a fresh message.")
 
 
-@language_group.command(name="show", description="Show the current board/ping language")
-async def language_show(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    name = "Russian" if entry.get("language") == "ru" else "English"
-    await _reply_dismiss(interaction, f"Current language: **{name}**.")
+NAMES_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                        app_commands.Choice(name="Clear", value="clear"),
+                        app_commands.Choice(name="List", value="list")]
 
 
-names_group = app_commands.Group(name="names", description="Set this server's own event/boss names per language",
-                                  parent=config_group)
-
-
-@names_group.command(name="set", description="Set an event/boss's name for a language (e.g. a Russian alias)")
-@app_commands.describe(key="Which event/boss", language="English or Russian", text="The name to display")
-@app_commands.choices(language=LANGUAGE_CHOICES)
+@config_group.command(name="names", description="Set, clear, or list this server's own event/boss names per language")
+@app_commands.describe(action="Set, Clear, or List", key="Which event/boss (Set/Clear only)",
+                        language="English or Russian (Set/Clear only)", text="The name to display (Set only)")
+@app_commands.choices(action=NAMES_ACTION_CHOICES, language=LANGUAGE_CHOICES)
 @require_permission("names")
-async def names_set(interaction: discord.Interaction, key: str, language: app_commands.Choice[str], text: str):
-    if key not in DEFAULT_NAMES:
+async def names_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
+                     key: Optional[str] = None, language: Optional[app_commands.Choice[str]] = None,
+                     text: Optional[str] = None):
+    entry = gd(interaction.guild_id)
+    if action.value == "list":
+        lines = []
+        for k, default_en in sorted(DEFAULT_NAMES.items(), key=lambda kv: kv[1]):
+            overrides = entry["event_names"].get(k, {})
+            en = overrides.get("en", default_en)
+            ru = overrides.get("ru", DEFAULT_NAMES_RU.get(k, default_en))
+            lines.append(f"**{default_en}** — EN: {en} · RU: {ru}")
+        # Discord messages cap at 2000 chars / embed descriptions at 4096; chunk defensively.
+        text_out = "\n".join(lines)
+        await _reply_dismiss(interaction, text_out[:3900] + ("\n…" if len(text_out) > 3900 else ""))
+        return
+    if key is None or key not in DEFAULT_NAMES:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
         return
-    entry = gd(interaction.guild_id)
-    entry["event_names"].setdefault(key, {})[language.value] = text.strip()[:48]
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** ({language.name}) will now show as "
-                          f"**{text.strip()[:48]}**.")
+    if language is None:
+        await _reply_dismiss(interaction, "`language` is required for Set/Clear.")
+        return
+    if action.value == "set":
+        if text is None:
+            await _reply_dismiss(interaction, "`text` is required to Set a name.")
+            return
+        entry["event_names"].setdefault(key, {})[language.value] = text.strip()[:48]
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** ({language.name}) will now show as "
+                              f"**{text.strip()[:48]}**.")
+    else:
+        had = entry["event_names"].get(key, {}).pop(language.value, None) is not None
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"Reset **{DEFAULT_NAMES[key]}** ({language.name}) to default."
+                              if had else f"**{DEFAULT_NAMES[key]}** ({language.name}) had no override set.")
 
 
-@names_set.autocomplete("key")
-async def names_set_autocomplete(interaction: discord.Interaction, current: str):
+@names_cmd.autocomplete("key")
+async def names_cmd_autocomplete(interaction: discord.Interaction, current: str):
     current = current.lower()
     return [app_commands.Choice(name=name, value=key) for key, name in DEFAULT_NAMES.items()
             if current in key.lower() or current in name.lower()][:25]
 
 
-@names_group.command(name="clear", description="Reset an event/boss's name for a language back to default")
-@app_commands.describe(key="Which event/boss", language="English or Russian")
-@app_commands.choices(language=LANGUAGE_CHOICES)
-@require_permission("names")
-async def names_clear(interaction: discord.Interaction, key: str, language: app_commands.Choice[str]):
-    if key not in DEFAULT_NAMES:
-        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
-        return
-    entry = gd(interaction.guild_id)
-    had = entry["event_names"].get(key, {}).pop(language.value, None) is not None
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"Reset **{DEFAULT_NAMES[key]}** ({language.name}) to default."
-                          if had else f"**{DEFAULT_NAMES[key]}** ({language.name}) had no override set.")
-
-
-@names_clear.autocomplete("key")
-async def names_clear_autocomplete(interaction: discord.Interaction, current: str):
-    return await names_set_autocomplete(interaction, current)
-
-
-@names_group.command(name="list", description="Show all event/boss names in both languages")
-async def names_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    lines = []
-    for key, default_en in sorted(DEFAULT_NAMES.items(), key=lambda kv: kv[1]):
-        overrides = entry["event_names"].get(key, {})
-        en = overrides.get("en", default_en)
-        ru = overrides.get("ru", DEFAULT_NAMES_RU.get(key, default_en))
-        lines.append(f"**{default_en}** — EN: {en} · RU: {ru}")
-    # Discord messages cap at 2000 chars / embed descriptions at 4096; chunk defensively.
-    text = "\n".join(lines)
-    await _reply_dismiss(interaction, text[:3900] + ("\n…" if len(text) > 3900 else ""))
-
-
-permissions_group = app_commands.Group(name="permissions",
-                                        description="Configure which permission level each command/button needs on this server",
-                                        parent=config_group)
 PERMISSION_LEVEL_CHOICES = [app_commands.Choice(name=label, value=key)
                             for key, label in PERMISSION_LEVEL_LABELS.items()]
 PERMISSION_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PERMISSION_TARGETS]
+PERMISSIONS_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                              app_commands.Choice(name="Clear", value="clear"),
+                              app_commands.Choice(name="List", value="list")]
 
 
-@permissions_group.command(name="set", description="Set the permission level required for a command/button")
-@app_commands.describe(target="Which command/button (see /permissions list for what each one does)",
-                        level="Required permission level")
-@app_commands.choices(target=PERMISSION_TARGET_CHOICES, level=PERMISSION_LEVEL_CHOICES)
+@config_group.command(name="permissions", description="Set, clear, or list the permission level required for each command/button")
+@app_commands.describe(action="Set, Clear, or List", target="Which command/button (Set/Clear only)",
+                        level="Required permission level (Set only)")
+@app_commands.choices(action=PERMISSIONS_ACTION_CHOICES, target=PERMISSION_TARGET_CHOICES, level=PERMISSION_LEVEL_CHOICES)
 @app_commands.checks.has_permissions(manage_guild=True)
-async def permissions_set(interaction: discord.Interaction, target: app_commands.Choice[str],
-                           level: app_commands.Choice[str]):
+async def permissions_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
+                           target: Optional[app_commands.Choice[str]] = None,
+                           level: Optional[app_commands.Choice[str]] = None):
     # Hardcoded Manage Server (not require_permission) — this command controls
     # every other permission gate, so its own gate can't be the thing it lowers.
     entry = gd(interaction.guild_id)
-    entry["permissions"][target.value] = level.value
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{target.name}** now requires **{level.name}** on this server.")
+    if action.value == "list":
+        lines = []
+        for key, label in PERMISSION_TARGETS:
+            lvl = _permission_level(entry, key)
+            overridden = " *(overridden)*" if key in entry["permissions"] else ""
+            lines.append(f"**{label}** — {PERMISSION_LEVEL_LABELS[lvl]}{overridden}\n"
+                          f"> {PERMISSION_TARGET_DESCRIPTIONS[key]}")
+        text = "\n\n".join(lines)
+        await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
+        return
+    if target is None:
+        await _reply_dismiss(interaction, "`target` is required for Set/Clear.")
+        return
+    if action.value == "set":
+        if level is None:
+            await _reply_dismiss(interaction, "`level` is required to Set a permission.")
+            return
+        entry["permissions"][target.value] = level.value
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{target.name}** now requires **{level.name}** on this server.")
+    else:
+        had = entry["permissions"].pop(target.value, None) is not None
+        save_data(guild_data)
+        default_label = PERMISSION_LEVEL_LABELS[DEFAULT_PERMISSION_LEVELS[target.value]]
+        await _reply_dismiss(interaction, f"**{target.name}** reset to the default (**{default_label}**)."
+                              if had else f"**{target.name}** was already at its default.")
 
 
-@permissions_group.command(name="clear", description="Reset a command/button's permission level back to default")
-@app_commands.describe(target="Which command/button")
-@app_commands.choices(target=PERMISSION_TARGET_CHOICES)
-@app_commands.checks.has_permissions(manage_guild=True)
-async def permissions_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
-    entry = gd(interaction.guild_id)
-    had = entry["permissions"].pop(target.value, None) is not None
-    save_data(guild_data)
-    default_label = PERMISSION_LEVEL_LABELS[DEFAULT_PERMISSION_LEVELS[target.value]]
-    await _reply_dismiss(interaction, f"**{target.name}** reset to the default (**{default_label}**)."
-                          if had else f"**{target.name}** was already at its default.")
-
-
-@permissions_group.command(name="list", description="Show the current permission level and what each command/button does")
-async def permissions_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    lines = []
-    for key, label in PERMISSION_TARGETS:
-        level = _permission_level(entry, key)
-        overridden = " *(overridden)*" if key in entry["permissions"] else ""
-        lines.append(f"**{label}** — {PERMISSION_LEVEL_LABELS[level]}{overridden}\n"
-                      f"> {PERMISSION_TARGET_DESCRIPTIONS[key]}")
-    text = "\n\n".join(lines)
-    await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
-
-
-buttons_group = app_commands.Group(name="buttons", description="Hide/show individual buttons on this server's board and role message",
-                                    parent=config_group)
 BUTTON_CHOICES = [app_commands.Choice(name=label, value=cid) for cid, label in BUTTON_REGISTRY]
+BUTTONS_ACTION_CHOICES = [app_commands.Choice(name="Hide", value="hide"),
+                          app_commands.Choice(name="Show", value="show"),
+                          app_commands.Choice(name="List", value="list")]
 
 
-@buttons_group.command(name="hide", description="Hide a button on this server (repost via /setup or /roles message to apply)")
-@app_commands.describe(button="Which button")
-@app_commands.choices(button=BUTTON_CHOICES)
+@config_group.command(name="buttons", description="Hide, show, or list individual buttons on this server")
+@app_commands.describe(action="Hide, Show, or List", button="Which button (Hide/Show only)")
+@app_commands.choices(action=BUTTONS_ACTION_CHOICES, button=BUTTON_CHOICES)
 @require_permission("buttons")
-async def buttons_hide(interaction: discord.Interaction, button: app_commands.Choice[str]):
+async def buttons_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
+                       button: Optional[app_commands.Choice[str]] = None):
     entry = gd(interaction.guild_id)
-    if button.value not in entry["hidden_buttons"]:
-        entry["hidden_buttons"].append(button.value)
-        save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{button.name}** hidden on this server. Run `/setup` "
-                          "(or `/roles message` for role buttons) again to repost without it.")
-
-
-@buttons_group.command(name="show", description="Un-hide a button on this server")
-@app_commands.describe(button="Which button")
-@app_commands.choices(button=BUTTON_CHOICES)
-@require_permission("buttons")
-async def buttons_show(interaction: discord.Interaction, button: app_commands.Choice[str]):
-    entry = gd(interaction.guild_id)
-    had = button.value in entry["hidden_buttons"]
-    if had:
-        entry["hidden_buttons"].remove(button.value)
-        save_data(guild_data)
-    await _reply_dismiss(interaction, (f"**{button.name}** will show again — run `/setup` "
-                          "(or `/roles message`) again to repost with it.") if had
-                          else f"**{button.name}** wasn't hidden.")
-
-
-@buttons_group.command(name="list", description="Show which buttons are hidden on this server")
-async def buttons_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    lines = [f"**{label}** — {'hidden' if cid in entry['hidden_buttons'] else 'shown'}"
-             for cid, label in BUTTON_REGISTRY]
-    await _reply_dismiss(interaction, "\n".join(lines))
+    if action.value == "list":
+        lines = [f"**{label}** — {'hidden' if cid in entry['hidden_buttons'] else 'shown'}"
+                 for cid, label in BUTTON_REGISTRY]
+        await _reply_dismiss(interaction, "\n".join(lines))
+        return
+    if button is None:
+        await _reply_dismiss(interaction, "`button` is required for Hide/Show.")
+        return
+    if action.value == "hide":
+        if button.value not in entry["hidden_buttons"]:
+            entry["hidden_buttons"].append(button.value)
+            save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{button.name}** hidden on this server. Run `/setup` "
+                              "(or `/config roles message` for role buttons) again to repost without it.")
+    else:
+        had = button.value in entry["hidden_buttons"]
+        if had:
+            entry["hidden_buttons"].remove(button.value)
+            save_data(guild_data)
+        await _reply_dismiss(interaction, (f"**{button.name}** will show again — run `/setup` "
+                              "(or `/config roles message`) again to repost with it.") if had
+                              else f"**{button.name}** wasn't hidden.")
 
 
 pings_group = app_commands.Group(name="pings", description="Customize or silence outgoing ping alerts on this server",
                                   parent=config_group)
 
 
-@pings_group.command(name="message", description="Set a custom template for outgoing ping messages on this server")
-@app_commands.describe(text="Use {role} {event} {time} as placeholders, e.g. '{role} {event} spawns in {time}!'")
+PINGS_MESSAGE_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                                app_commands.Choice(name="Reset", value="reset")]
+
+
+@pings_group.command(name="message", description="Set or reset the custom template for outgoing ping messages on this server")
+@app_commands.describe(action="Set or Reset",
+                        text="Use {role} {event} {time} as placeholders, e.g. '{role} {event} spawns in {time}!' (Set only)")
+@app_commands.choices(action=PINGS_MESSAGE_ACTION_CHOICES)
 @require_permission("pings")
-async def pings_message(interaction: discord.Interaction, text: str):
+async def pings_message(interaction: discord.Interaction, action: app_commands.Choice[str], text: Optional[str] = None):
+    entry = gd(interaction.guild_id)
+    if action.value == "reset":
+        had = entry["ping_template"] is not None
+        entry["ping_template"] = None
+        save_data(guild_data)
+        await _reply_dismiss(interaction, "Ping template reset to the language default."
+                              if had else "Already using the language default.")
+        return
+    if text is None:
+        await _reply_dismiss(interaction, "`text` is required to Set the template.")
+        return
     try:
         text.format(role="<@&0>", event="Test", time="5m")
     except Exception as e:
         await _reply_dismiss(interaction, f"That template isn't valid ({e}) — only "
                               "{role}, {event}, and {time} are valid placeholders.")
         return
-    entry = gd(interaction.guild_id)
     entry["ping_template"] = text.strip()[:200]
     save_data(guild_data)
     preview = _render_ping_message(entry, 0, "Guild Boss", "15m").replace("<@&0>", "@Guild Boss Pings")
     await _reply_dismiss(interaction, f"Ping template updated. Preview:\n{preview}")
 
 
-@pings_group.command(name="message-reset", description="Reset the ping template back to the language default")
+PINGS_ALERTS_ACTION_CHOICES = [app_commands.Choice(name="Disable", value="disable"),
+                               app_commands.Choice(name="Enable", value="enable"),
+                               app_commands.Choice(name="List", value="list")]
+
+
+@pings_group.command(name="alerts", description="Silence, re-enable, or list which targets' ping alerts are active")
+@app_commands.describe(action="Disable, Enable, or List", target="Which timer/event (Disable/Enable only)")
+@app_commands.choices(action=PINGS_ALERTS_ACTION_CHOICES, target=PING_TARGET_CHOICES)
 @require_permission("pings")
-async def pings_message_reset(interaction: discord.Interaction):
+async def pings_alerts(interaction: discord.Interaction, action: app_commands.Choice[str],
+                        target: Optional[app_commands.Choice[str]] = None):
     entry = gd(interaction.guild_id)
-    had = entry["ping_template"] is not None
-    entry["ping_template"] = None
-    save_data(guild_data)
-    await _reply_dismiss(interaction, "Ping template reset to the language default."
-                          if had else "Already using the language default.")
+    if action.value == "list":
+        template = entry["ping_template"] or f"{ui(entry, 'ping_template')} (language default)"
+        lines = [f"Template: {template}", ""]
+        for key, label in PING_TARGETS:
+            status = "silenced" if key in entry["disabled_pings"] else "enabled"
+            lines.append(f"**{get_name(entry, key)}** — {status}")
+        await _reply_dismiss(interaction, "\n".join(lines))
+        return
+    if target is None:
+        await _reply_dismiss(interaction, "`target` is required for Disable/Enable.")
+        return
+    if action.value == "disable":
+        if target.value not in entry["disabled_pings"]:
+            entry["disabled_pings"].append(target.value)
+            save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** alerts are now silenced "
+                              "on this server (the role binding is untouched).")
+    else:
+        had = target.value in entry["disabled_pings"]
+        if had:
+            entry["disabled_pings"].remove(target.value)
+            save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** alerts re-enabled."
+                              if had else f"**{get_name(entry, target.value)}** wasn't silenced.")
 
 
-@pings_group.command(name="disable", description="Silence a target's ping alerts without unbinding its role")
-@app_commands.describe(target="Which timer/event")
-@app_commands.choices(target=PING_TARGET_CHOICES)
-@require_permission("pings")
-async def pings_disable(interaction: discord.Interaction, target: app_commands.Choice[str]):
-    entry = gd(interaction.guild_id)
-    if target.value not in entry["disabled_pings"]:
-        entry["disabled_pings"].append(target.value)
-        save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** alerts are now silenced "
-                          "on this server (the role binding is untouched).")
-
-
-@pings_group.command(name="enable", description="Re-enable a target's ping alerts")
-@app_commands.describe(target="Which timer/event")
-@app_commands.choices(target=PING_TARGET_CHOICES)
-@require_permission("pings")
-async def pings_enable(interaction: discord.Interaction, target: app_commands.Choice[str]):
-    entry = gd(interaction.guild_id)
-    had = target.value in entry["disabled_pings"]
-    if had:
-        entry["disabled_pings"].remove(target.value)
-        save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{get_name(entry, target.value)}** alerts re-enabled."
-                          if had else f"**{get_name(entry, target.value)}** wasn't silenced.")
-
-
-@pings_group.command(name="list", description="Show the ping template and which targets are silenced")
-async def pings_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    template = entry["ping_template"] or f"{ui(entry, 'ping_template')} (language default)"
-    lines = [f"Template: {template}", ""]
-    for key, label in PING_TARGETS:
-        status = "silenced" if key in entry["disabled_pings"] else "enabled"
-        lines.append(f"**{get_name(entry, key)}** — {status}")
-    await _reply_dismiss(interaction, "\n".join(lines))
-
-
-board_group = app_commands.Group(name="board", description="Customize the board's own time-remaining wording (whole-server presentation, Manage Server)",
+board_group = app_commands.Group(name="board", description="Customize board wording, event sections, and event visibility (whole-server presentation, Manage Server)",
                                   parent=config_group)
 BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
                       app_commands.Choice(name="Upcoming rows", value="upcoming"),
@@ -1679,153 +1680,142 @@ BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
                       app_commands.Choice(name="All", value="both")]
 
 
-@board_group.command(name="time-format", description="Set the wording for Live Now, Upcoming, or Appeared rows on this server")
-@app_commands.describe(kind="Which rows", text="Use {time} as the placeholder, e.g. '{time} remaining' or '⏳ {time}'")
-@app_commands.choices(kind=[c for c in BOARD_KIND_CHOICES if c.value != "both"])
+BOARD_WORDING_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                                app_commands.Choice(name="Reset", value="reset"),
+                                app_commands.Choice(name="List", value="list")]
+
+
+@board_group.command(name="wording", description="Set, reset, or list the Live Now / Upcoming / Appeared row wording on this server")
+@app_commands.describe(action="Set, Reset, or List", kind="Which rows (Set/Reset only)",
+                        text="Use {time} as the placeholder, e.g. '{time} remaining' or '⏳ {time}' (Set only)")
+@app_commands.choices(action=BOARD_WORDING_ACTION_CHOICES, kind=BOARD_KIND_CHOICES)
 @require_permission("board")
-async def board_time_format(interaction: discord.Interaction, kind: app_commands.Choice[str], text: str):
+async def board_wording(interaction: discord.Interaction, action: app_commands.Choice[str],
+                         kind: Optional[app_commands.Choice[str]] = None, text: Optional[str] = None):
+    entry = gd(interaction.guild_id)
+    if action.value == "list":
+        live = entry["live_time_format"] or f"{ui(entry, 'live_time_format')} (default)"
+        upcoming = entry["upcoming_time_format"] or f"{ui(entry, 'upcoming_time_format')} (default)"
+        appeared = entry["appeared_time_format"] or f"{ui(entry, 'appeared_time_format')} (default)"
+        await _reply_dismiss(interaction, f"Live now: {live}\nUpcoming: {upcoming}\nAppeared: {appeared}")
+        return
+    if kind is None:
+        await _reply_dismiss(interaction, "`kind` is required for Set/Reset.")
+        return
+    if action.value == "reset":
+        keys = ["live", "upcoming", "appeared"] if kind.value == "both" else [kind.value]
+        for k in keys:
+            entry[f"{k}_time_format"] = None
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{kind.name}** reset to the language default.")
+        return
+    if kind.value == "both":
+        await _reply_dismiss(interaction, "Pick a specific row type (not All) to Set wording for.")
+        return
+    if text is None:
+        await _reply_dismiss(interaction, "`text` is required to Set wording.")
+        return
     try:
         text.format(time="5m")
     except Exception as e:
         await _reply_dismiss(interaction, f"That template isn't valid ({e}) — only "
                               "{time} is a valid placeholder.")
         return
-    entry = gd(interaction.guild_id)
     entry[f"{kind.value}_time_format"] = text.strip()[:100]
     save_data(guild_data)
     preview = _render_time_text(entry, kind.value, "6m")
     await _reply_dismiss(interaction, f"**{kind.name}** now show: \"{preview}\". Updates within 5s.")
 
 
-@board_group.command(name="time-reset", description="Reset board wording back to the language default")
-@app_commands.describe(kind="Which rows")
-@app_commands.choices(kind=BOARD_KIND_CHOICES)
-@require_permission("board")
-async def board_time_reset(interaction: discord.Interaction, kind: app_commands.Choice[str]):
-    entry = gd(interaction.guild_id)
-    keys = ["live", "upcoming", "appeared"] if kind.value == "both" else [kind.value]
-    for k in keys:
-        entry[f"{k}_time_format"] = None
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{kind.name}** reset to the language default.")
-
-
-@board_group.command(name="time-list", description="Show the current Live Now / Upcoming / Appeared wording")
-async def board_time_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    live = entry["live_time_format"] or f"{ui(entry, 'live_time_format')} (default)"
-    upcoming = entry["upcoming_time_format"] or f"{ui(entry, 'upcoming_time_format')} (default)"
-    appeared = entry["appeared_time_format"] or f"{ui(entry, 'appeared_time_format')} (default)"
-    await _reply_dismiss(interaction, f"Live now: {live}\nUpcoming: {upcoming}\nAppeared: {appeared}")
-
-
 BOARD_CATEGORY_CHOICES = [app_commands.Choice(name="Bosses & PVP", value="primary"),
                           app_commands.Choice(name="Upcoming Events", value="secondary")]
+BOARD_CATEGORY_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
+                                 app_commands.Choice(name="Reset", value="reset"),
+                                 app_commands.Choice(name="List", value="list")]
 
 
-@board_group.command(name="category-set", description="Move an event between Bosses & PVP and Upcoming Events on this server")
-@app_commands.describe(key="Which event", category="Which section to show it in")
-@app_commands.choices(category=BOARD_CATEGORY_CHOICES)
+@board_group.command(name="category", description="Move, reset, or list which section (Bosses & PVP / Upcoming Events) each event is in")
+@app_commands.describe(action="Set, Reset, or List", key="Which event (Set/Reset only)",
+                        category="Which section to show it in (Set only)")
+@app_commands.choices(action=BOARD_CATEGORY_ACTION_CHOICES, category=BOARD_CATEGORY_CHOICES)
 @require_permission("board")
-async def board_category_set(interaction: discord.Interaction, key: str, category: app_commands.Choice[str]):
-    if key not in BOARD_EVENT_KEYS:
+async def board_category(interaction: discord.Interaction, action: app_commands.Choice[str],
+                          key: Optional[str] = None, category: Optional[app_commands.Choice[str]] = None):
+    entry = gd(interaction.guild_id)
+    if action.value == "list":
+        lines = []
+        for k in sorted(BOARD_EVENT_KEYS, key=lambda k: DEFAULT_NAMES[k]):
+            section = "Bosses & PVP" if _event_category(entry, k) == "primary" else "Upcoming Events"
+            moved = " *(moved)*" if k in entry["category_overrides"] else ""
+            lines.append(f"**{DEFAULT_NAMES[k]}** — {section}{moved}")
+        text = "\n".join(lines)
+        await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
+        return
+    if key is None or key not in BOARD_EVENT_KEYS:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
         return
-    entry = gd(interaction.guild_id)
-    entry["category_overrides"][key] = category.value
-    save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** moved to **{category.name}** "
-                          "on this server. Updates within 5s.")
+    if action.value == "set":
+        if category is None:
+            await _reply_dismiss(interaction, "`category` is required to Set.")
+            return
+        entry["category_overrides"][key] = category.value
+        save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** moved to **{category.name}** "
+                              "on this server. Updates within 5s.")
+    else:
+        had = entry["category_overrides"].pop(key, None) is not None
+        save_data(guild_data)
+        default_label = "Bosses & PVP" if key in PRIMARY_KEYS else "Upcoming Events"
+        await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** reset to its default section "
+                              f"(**{default_label}**)." if had else f"**{DEFAULT_NAMES[key]}** wasn't moved.")
 
 
-@board_category_set.autocomplete("key")
-async def board_category_set_autocomplete(interaction: discord.Interaction, current: str):
+@board_category.autocomplete("key")
+async def board_category_autocomplete(interaction: discord.Interaction, current: str):
     current = current.lower()
     return [app_commands.Choice(name=DEFAULT_NAMES[k], value=k) for k in BOARD_EVENT_KEYS
             if current in k.lower() or current in DEFAULT_NAMES[k].lower()][:25]
 
 
-@board_group.command(name="category-reset", description="Reset an event's section back to the default on this server")
-@app_commands.describe(key="Which event")
+BOARD_EVENTS_ACTION_CHOICES = [app_commands.Choice(name="Hide", value="hide"),
+                               app_commands.Choice(name="Show", value="show"),
+                               app_commands.Choice(name="List", value="list")]
+
+
+@board_group.command(name="events", description="Hide, show, or list which events are removed from this server's board entirely")
+@app_commands.describe(action="Hide, Show, or List", key="Which event (Hide/Show only)")
+@app_commands.choices(action=BOARD_EVENTS_ACTION_CHOICES)
 @require_permission("board")
-async def board_category_reset(interaction: discord.Interaction, key: str):
-    if key not in BOARD_EVENT_KEYS:
+async def board_events(interaction: discord.Interaction, action: app_commands.Choice[str], key: Optional[str] = None):
+    entry = gd(interaction.guild_id)
+    if action.value == "list":
+        if not entry["disabled_events"]:
+            await _reply_dismiss(interaction, "No events are hidden on this server.")
+            return
+        lines = [f"**{DEFAULT_NAMES[k]}**" for k in entry["disabled_events"]]
+        await _reply_dismiss(interaction, "\n".join(lines))
+        return
+    if key is None or key not in BOARD_EVENT_KEYS:
         await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
         return
-    entry = gd(interaction.guild_id)
-    had = entry["category_overrides"].pop(key, None) is not None
-    save_data(guild_data)
-    default_label = "Bosses & PVP" if key in PRIMARY_KEYS else "Upcoming Events"
-    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** reset to its default section "
-                          f"(**{default_label}**)." if had else f"**{DEFAULT_NAMES[key]}** wasn't moved.")
+    if action.value == "hide":
+        if key not in entry["disabled_events"]:
+            entry["disabled_events"].append(key)
+            save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** hidden from the board on this "
+                              "server — it won't show up or ping. Updates within 5s.")
+    else:
+        had = key in entry["disabled_events"]
+        if had:
+            entry["disabled_events"].remove(key)
+            save_data(guild_data)
+        await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** is back on the board."
+                              if had else f"**{DEFAULT_NAMES[key]}** wasn't hidden.")
 
 
-@board_category_reset.autocomplete("key")
-async def board_category_reset_autocomplete(interaction: discord.Interaction, current: str):
-    return await board_category_set_autocomplete(interaction, current)
-
-
-@board_group.command(name="category-list", description="Show which section every event is in on this server")
-async def board_category_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    lines = []
-    for key in sorted(BOARD_EVENT_KEYS, key=lambda k: DEFAULT_NAMES[k]):
-        section = "Bosses & PVP" if _event_category(entry, key) == "primary" else "Upcoming Events"
-        moved = " *(moved)*" if key in entry["category_overrides"] else ""
-        lines.append(f"**{DEFAULT_NAMES[key]}** — {section}{moved}")
-    text = "\n".join(lines)
-    await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
-
-
-@board_group.command(name="hide-event", description="Remove an event from this server's board (and its pings) entirely")
-@app_commands.describe(key="Which event")
-@require_permission("board")
-async def board_hide_event(interaction: discord.Interaction, key: str):
-    if key not in BOARD_EVENT_KEYS:
-        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
-        return
-    entry = gd(interaction.guild_id)
-    if key not in entry["disabled_events"]:
-        entry["disabled_events"].append(key)
-        save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** hidden from the board on this "
-                          "server — it won't show up or ping. Updates within 5s.")
-
-
-@board_hide_event.autocomplete("key")
-async def board_hide_event_autocomplete(interaction: discord.Interaction, current: str):
-    return await board_category_set_autocomplete(interaction, current)
-
-
-@board_group.command(name="show-event", description="Bring a hidden event back onto this server's board")
-@app_commands.describe(key="Which event")
-@require_permission("board")
-async def board_show_event(interaction: discord.Interaction, key: str):
-    if key not in BOARD_EVENT_KEYS:
-        await _reply_dismiss(interaction, f"Unknown event key `{key}` — pick one from the autocomplete list.")
-        return
-    entry = gd(interaction.guild_id)
-    had = key in entry["disabled_events"]
-    if had:
-        entry["disabled_events"].remove(key)
-        save_data(guild_data)
-    await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** is back on the board."
-                          if had else f"**{DEFAULT_NAMES[key]}** wasn't hidden.")
-
-
-@board_show_event.autocomplete("key")
-async def board_show_event_autocomplete(interaction: discord.Interaction, current: str):
-    return await board_category_set_autocomplete(interaction, current)
-
-
-@board_group.command(name="hidden-list", description="Show which events are hidden from this server's board")
-async def board_hidden_list(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    if not entry["disabled_events"]:
-        await _reply_dismiss(interaction, "No events are hidden on this server.")
-        return
-    lines = [f"**{DEFAULT_NAMES[k]}**" for k in entry["disabled_events"]]
-    await _reply_dismiss(interaction, "\n".join(lines))
+@board_events.autocomplete("key")
+async def board_events_autocomplete(interaction: discord.Interaction, current: str):
+    return await board_category_autocomplete(interaction, current)
 
 
 client.tree.add_command(config_group)
