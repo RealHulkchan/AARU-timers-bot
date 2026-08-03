@@ -10,15 +10,15 @@ Setup:
     set DISCORD_TOKEN=your-bot-token   (or put it in a .env file, see .env.example)
     python discord_bot.py
 
-Commands (all slash commands). Everything except /setup, /timer, /events, and
-/clear nests under one top-level /config so the "/" picker isn't a wall of
+Commands (all slash commands). Everything except /setup, /timer, and /clear
+nests under one top-level /config so the "/" picker isn't a wall of
 top-level entries — e.g. "/roles set" below is really "/config roles set":
 
     /setup                             - post the live timer board in this channel
-    /timer start name hours minutes    - start a custom countdown (guild boss etc.)
+    /timer start name hours minutes    - start a custom countdown (guild boss etc.) — if one by
+                                          that name already appeared (elapsed), kills and replaces it
     /timer list                        - list running custom timers
     /timer cancel name                 - cancel a running custom timer
-    /events                            - one-off snapshot (ephemeral, auto-dismisses)
     /clear                             - delete this bot's own messages in the channel
 
     /config roles set target role      - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/
@@ -42,9 +42,9 @@ top-level entries — e.g. "/roles set" below is really "/config roles set":
     /config pings message-reset        - reset the ping template to the language default
     /config pings disable|enable target- silence/restore a target's alerts without unbinding its role
     /config pings list                 - show the template and which targets are silenced
-    /config board time-format kind text- customize board wording ({time}; kind=live|upcoming)
-    /config board time-reset kind      - reset one (or both) back to the language default
-    /config board time-list            - show the current live/upcoming templates
+    /config board time-format kind text- customize board wording ({time}; kind=live|upcoming|appeared)
+    /config board time-reset kind      - reset one (or all) back to the language default
+    /config board time-list            - show the current live/upcoming/appeared templates
     /config board category-set key cat - move an event between Bosses & PVP and Upcoming Events
     /config board category-reset key   - reset an event's section back to default
     /config board category-list        - show which section every event is in here
@@ -57,6 +57,13 @@ Russian ping alerts already use a fully-localized template ("{role} {event}
 before, only the surrounding "in X minutes"-style wording was English-only
 until now. The board's own "6m left"/"in 1h" wording is customizable the
 same way via /config board time-format, also localized to Russian by default.
+
+A custom (Guild Boss/Morpheus/Rangora/etc.) timer that reaches zero doesn't
+just show a static "UP!" — it switches to counting UP ("Appeared! 3m elapsed"
+/ "Появился! 3м прошло") for CUSTOM_TIMER_KEEP_SECS (2h) before being dropped.
+Starting the same-named timer again while it's in that elapsed state kills
+the old entry and replaces it with a fresh countdown, instead of running both
+side by side.
 
 Permission levels are per-guild and configurable — see /permissions above.
 Defaults: preset buttons = everyone; /setup, /language set, and /board
@@ -286,6 +293,7 @@ def gd(guild_id):
     entry.setdefault("disabled_pings", [])   # list of ping-target keys with alerts suppressed
     entry.setdefault("live_time_format", None)      # None = language default ("{time} left")
     entry.setdefault("upcoming_time_format", None)  # None = language default ("in {time}")
+    entry.setdefault("appeared_time_format", None)  # None = language default ("Appeared! {time} elapsed")
     entry.setdefault("role_channel_id", None)
     entry.setdefault("role_message_id", None)
     entry.setdefault("role_hidden", False)   # /roles hide — skip auto-posting the opt-in message
@@ -490,6 +498,7 @@ UI = {
         "ping_template": "{role} **{event}** in {time}!",
         "live_time_format": "{time} left",
         "upcoming_time_format": "in {time}",
+        "appeared_time_format": "Appeared! {time} elapsed",
     },
     "ru": {
         "title": "🗓️ Таймеры ArcheAge",
@@ -508,6 +517,7 @@ UI = {
         "ping_template": "{role} **{event}** через {time}!",
         "live_time_format": "осталось {time}",
         "upcoming_time_format": "через {time}",
+        "appeared_time_format": "Появился! {time} прошло",
     },
 }
 
@@ -545,6 +555,9 @@ def localized_occ_name(entry, occ):
 # use "##" (renders large/bold) and rows get a full blank line of breathing room —
 # fields force a cramped fixed layout that can't do either.
 EMBED_COLOR = 0xC8A96E
+# How long an "appeared" custom timer keeps counting up (and stays on the
+# board) before it's finally dropped.
+CUSTOM_TIMER_KEEP_SECS = 2 * 3600
 
 
 def _render_time_text(entry, kind, time_str):
@@ -606,7 +619,10 @@ def build_embed(entry):
         rem = t["end"] - now.timestamp()
         name = _custom_timer_name(entry, t)
         if rem <= 0:
-            custom_lines.append(f"⏱ **{name}** — UP!")
+            # Counts UP once it appears (kept for CUSTOM_TIMER_KEEP_SECS total)
+            # instead of a static "UP!" that gave no sense of how long ago.
+            elapsed = -rem
+            custom_lines.append(f"⏱ **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(elapsed))}")
         else:
             epoch = int(t["end"])
             msk_t = datetime.fromtimestamp(t["end"], tz=MOSCOW).strftime("%H:%M")
@@ -725,15 +741,18 @@ class PresetView(discord.ui.View):
     async def _start(self, interaction, name, hours):
         entry = gd(interaction.guild_id)
         now_ts = datetime.now(MOSCOW).timestamp()
-        # Guards against double-clicks/retries spawning two of the same preset timer
-        # at once — each would independently trigger its own duplicate ping.
+        display_name = _custom_timer_name(entry, {"name": name})
+        # Still actively counting down — guards against double-clicks/retries
+        # spawning a second timer that would independently trigger its own ping.
         existing = next((t for t in entry["custom_timers"]
                           if t["name"] == name and t["end"] > now_ts), None)
-        display_name = _custom_timer_name(entry, {"name": name})
         if existing:
             await _reply_dismiss(interaction, f"**{display_name}** is already running — "
                                   f"{fmt_rem(existing['end'] - now_ts)} left.")
             return
+        # Already appeared (sitting in the elapsed/counting-up state) — kill and
+        # replace with a fresh countdown instead of running the two side by side.
+        entry["custom_timers"] = [t for t in entry["custom_timers"] if t["name"] != name]
         end = now_ts + hours * 3600
         entry["custom_timers"].append({"name": name, "end": end})
         entry["custom_timers"].sort(key=lambda t: t["end"])
@@ -1124,7 +1143,7 @@ async def refresh_loop():
             now_ts = datetime.now(MOSCOW).timestamp()
             before = len(entry["custom_timers"])
             entry["custom_timers"] = [t for t in entry["custom_timers"]
-                                       if now_ts - t.get("end", 0) <= 300]   # keep "UP!" 5 min
+                                       if now_ts - t.get("end", 0) <= CUSTOM_TIMER_KEEP_SECS]
             if len(entry["custom_timers"]) != before:
                 expired_any = True
 
@@ -1213,26 +1232,27 @@ async def timer_start(interaction: discord.Interaction, name: str,
     entry = gd(interaction.guild_id)
     name = name.strip()[:24] or "timer"
     now_ts = datetime.now(MOSCOW).timestamp()
+    display = _custom_timer_name(entry, {"name": name})
     # Duplicate guard only (no permission change) — blocks double-submits/retries
     # from spawning two timers under the same name that would each ping on their
-    # own schedule.
+    # own schedule. Only blocks a still-COUNTING-DOWN duplicate; one that's
+    # already appeared (elapsed) gets killed and replaced below instead.
     existing = next((t for t in entry["custom_timers"]
                       if t["name"] == name and t["end"] > now_ts), None)
     if existing:
-        display = _custom_timer_name(entry, {"name": name})
         await _reply_dismiss(interaction, f"**{display}** is already running — "
                               f"{fmt_rem(existing['end'] - now_ts)} left.")
         return
+    entry["custom_timers"] = [t for t in entry["custom_timers"] if t["name"] != name]
     end = now_ts + total_hours * 3600
     entry["custom_timers"].append({"name": name, "end": end})
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
-    display_name = _custom_timer_name(entry, {"name": name})
     # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
     # the timer itself shows up under Guild Timers on the live board within 5s.
     await _reply_dismiss(
         interaction,
-        f"Timer started: **{display_name}** — {dur_label(total_hours)} ({fmt_rem(total_hours * 3600)} left). "
+        f"Timer started: **{display}** — {dur_label(total_hours)} ({fmt_rem(total_hours * 3600)} left). "
         "It'll appear on the live board within 5s.")
 
 
@@ -1244,8 +1264,14 @@ async def timer_list(interaction: discord.Interaction):
         await _reply_dismiss(interaction, "No custom timers running.")
         return
     now_ts = datetime.now(MOSCOW).timestamp()
-    lines = [f"⏱ **{_custom_timer_name(entry, t)}** — {fmt_rem(t['end'] - now_ts)} left"
-             for t in entry["custom_timers"]]
+    lines = []
+    for t in entry["custom_timers"]:
+        name = _custom_timer_name(entry, t)
+        rem = t["end"] - now_ts
+        if rem <= 0:
+            lines.append(f"⏱ **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(-rem))}")
+        else:
+            lines.append(f"⏱ **{name}** — {fmt_rem(rem)} left")
     await _reply_dismiss(interaction, "\n".join(lines))
 
 
@@ -1606,10 +1632,11 @@ board_group = app_commands.Group(name="board", description="Customize the board'
                                   parent=config_group)
 BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
                       app_commands.Choice(name="Upcoming rows", value="upcoming"),
-                      app_commands.Choice(name="Both", value="both")]
+                      app_commands.Choice(name="Appeared rows (Guild Timers post-spawn)", value="appeared"),
+                      app_commands.Choice(name="All", value="both")]
 
 
-@board_group.command(name="time-format", description="Set the wording for Live Now or Upcoming rows on this server")
+@board_group.command(name="time-format", description="Set the wording for Live Now, Upcoming, or Appeared rows on this server")
 @app_commands.describe(kind="Which rows", text="Use {time} as the placeholder, e.g. '{time} remaining' or '⏳ {time}'")
 @app_commands.choices(kind=[c for c in BOARD_KIND_CHOICES if c.value != "both"])
 @require_permission("board")
@@ -1633,19 +1660,20 @@ async def board_time_format(interaction: discord.Interaction, kind: app_commands
 @require_permission("board")
 async def board_time_reset(interaction: discord.Interaction, kind: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
-    keys = ["live", "upcoming"] if kind.value == "both" else [kind.value]
+    keys = ["live", "upcoming", "appeared"] if kind.value == "both" else [kind.value]
     for k in keys:
         entry[f"{k}_time_format"] = None
     save_data(guild_data)
     await _reply_dismiss(interaction, f"**{kind.name}** reset to the language default.")
 
 
-@board_group.command(name="time-list", description="Show the current Live Now / Upcoming wording")
+@board_group.command(name="time-list", description="Show the current Live Now / Upcoming / Appeared wording")
 async def board_time_list(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     live = entry["live_time_format"] or f"{ui(entry, 'live_time_format')} (default)"
     upcoming = entry["upcoming_time_format"] or f"{ui(entry, 'upcoming_time_format')} (default)"
-    await _reply_dismiss(interaction, f"Live now: {live}\nUpcoming: {upcoming}")
+    appeared = entry["appeared_time_format"] or f"{ui(entry, 'appeared_time_format')} (default)"
+    await _reply_dismiss(interaction, f"Live now: {live}\nUpcoming: {upcoming}\nAppeared: {appeared}")
 
 
 BOARD_CATEGORY_CHOICES = [app_commands.Choice(name="Bosses & PVP", value="primary"),
@@ -1758,13 +1786,6 @@ async def board_hidden_list(interaction: discord.Interaction):
 
 
 client.tree.add_command(config_group)
-
-
-@client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
-async def events_cmd(interaction: discord.Interaction):
-    entry = gd(interaction.guild_id)
-    embed = build_embed(entry)
-    await _reply_dismiss(interaction, embed=embed)
 
 
 @client.tree.command(name="clear", description="Delete this bot's own messages in this channel")
