@@ -328,7 +328,7 @@ PERMISSION_TARGETS = [
     ("clear_cmd", "/clear"),
     ("buttons", "/config buttons"),
     ("pings", "/config pings (section: Message, Alerts)"),
-    ("board", "/config board (section: Wording, Category, Events); /config roles (section: Visibility); /config emoji"),
+    ("board", "/config board, emoji; /config roles (section: Visibility)"),
 ]
 PERMISSION_TARGET_DESCRIPTIONS = {
     "preset_timers": "The buttons under the board that start a preset Guild Boss "
