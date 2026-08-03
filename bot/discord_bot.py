@@ -1269,8 +1269,13 @@ async def refresh_loop():
             embed = build_embed(entry)
             try:
                 if entry.get("message_id"):
-                    msg = await channel.fetch_message(entry["message_id"])
-                    await msg.edit(embed=embed)
+                    # A PartialMessage.edit() is one PATCH; fetch_message()+edit()
+                    # was two requests (a GET then a PATCH) every single 5s tick
+                    # per guild, for no benefit — edit() already raises NotFound
+                    # itself if the message is gone, so the fetch bought nothing
+                    # except doubling how fast this loop burns through whatever
+                    # rate-limit budget the channel has.
+                    await channel.get_partial_message(entry["message_id"]).edit(embed=embed)
                 else:
                     msg = await channel.send(embed=embed, view=PresetView(entry))
                     entry["message_id"] = msg.id
