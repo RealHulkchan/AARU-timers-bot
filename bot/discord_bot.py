@@ -15,10 +15,12 @@ nests under one top-level /config so the "/" picker isn't a wall of
 top-level entries — e.g. "/roles set" below is really "/config roles set":
 
     /setup                             - post the live timer board in this channel
-    /timer start name hours minutes    - start a custom countdown (guild boss etc.) — if one by
-                                          that name already appeared (elapsed), kills and replaces it
+    /timer start name hours minutes    - start a custom countdown (name autocompletes the 3 presets,
+                                          localized; any other name also works). If one by that name
+                                          already appeared (elapsed), kills and replaces it.
     /timer list                        - list running custom timers
-    /timer cancel name                 - cancel a running custom timer
+    /timer cancel name                 - cancel a running custom timer (name autocompletes from
+                                          whatever's currently running, localized)
     /clear                             - delete this bot's own messages in the channel
 
     /config roles set target role      - ping `role` before Guild Boss/JMG/Morpheus/Rangora/Skyfin/
@@ -65,11 +67,12 @@ Starting the same-named timer again while it's in that elapsed state kills
 the old entry and replaces it with a fresh countdown, instead of running both
 side by side.
 
-Permission levels are per-guild and configurable — see /permissions above.
-Defaults: preset buttons = everyone; /setup, /language set, and /board
-(incl. /roles hide|show) = Manage Server (whole-server presentation);
-everything else (/timer, /roles set|clear|message, /names set|clear,
-/clear, /buttons, /pings) = Manage Messages. /permissions itself always
+Permission levels are per-guild and configurable — see /config permissions
+above. Defaults: preset buttons = everyone; /setup, /config language set,
+and /config board (incl. /config roles hide|show) = Manage Server
+(whole-server presentation); everything else (/timer, /config roles
+set|clear|message, /config names set|clear, /clear, /config buttons,
+/config pings) = Manage Messages. /config permissions itself always
 requires Manage Server, hardcoded, so it can't be used to lower its own bar.
 """
 
@@ -158,8 +161,9 @@ PRIMARY_KEYS = (frozenset(key for day in WEEKLY_SCHEDULE.values() for key, *_ in
 
 
 def _event_category(entry, key):
-    """"primary" (Bosses & PVP) or "secondary" (Upcoming Events) for this guild —
-    a per-guild /board category-set override wins over the built-in default."""
+    """Returns "primary" (Bosses & PVP) or "secondary" (Upcoming Events) for this
+    guild — a per-guild /config board category-set override wins over the
+    built-in default."""
     override = entry["category_overrides"].get(key)
     if override:
         return override
@@ -296,27 +300,29 @@ def gd(guild_id):
     entry.setdefault("appeared_time_format", None)  # None = language default ("Appeared! {time} elapsed")
     entry.setdefault("role_channel_id", None)
     entry.setdefault("role_message_id", None)
-    entry.setdefault("role_hidden", False)   # /roles hide — skip auto-posting the opt-in message
-    entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /board category-set
-    entry.setdefault("disabled_events", [])   # event keys fully hidden (board + pings) — /board hide-event
+    entry.setdefault("role_hidden", False)   # /config roles hide — skip auto-posting the opt-in message
+    entry.setdefault("category_overrides", {})   # {event_key: "primary"|"secondary"} — /config board category-set
+    entry.setdefault("disabled_events", [])   # event keys fully hidden (board + pings) — /config board hide-event
     return entry
 
 
 # Per-guild-overridable permission levels for admin-facing commands/buttons.
 # "everyone" = no restriction, "manage_messages"/"manage_server" = that Discord
 # permission required. Defaults here match this server's current setup; any
-# guild can override any target independently via /permissions set.
+# guild can override any target independently via /config permissions set.
+# All /config-nested command names below include that prefix since that's what
+# actually works — /roles, /pings, etc. don't exist as bare top-level commands.
 PERMISSION_TARGETS = [
     ("preset_timers", "+ Guild Boss/Morph/Rangora buttons"),
     ("timer", "/timer start, list, cancel"),
     ("setup", "/setup"),
-    ("roles", "/roles set, clear, message"),
-    ("language", "/language set"),
-    ("names", "/names set, clear"),
+    ("roles", "/config roles set, clear, message"),
+    ("language", "/config language set"),
+    ("names", "/config names set, clear"),
     ("clear_cmd", "/clear"),
-    ("buttons", "/buttons hide, show"),
-    ("pings", "/pings message, disable, enable"),
-    ("board", "/board time-format, time-reset; /roles hide, show"),
+    ("buttons", "/config buttons hide, show"),
+    ("pings", "/config pings message, disable, enable"),
+    ("board", "/config board time-format, time-reset; /config roles hide, show"),
 ]
 PERMISSION_TARGET_DESCRIPTIONS = {
     "preset_timers": "The buttons under the board that start a preset Guild Boss "
@@ -326,27 +332,31 @@ PERMISSION_TARGET_DESCRIPTIONS = {
     "setup": "Posts (or moves) the live timer board and the self-assign role "
               "message into the current channel. Doesn't delete an existing board "
               "elsewhere — use /clear for that.",
-    "roles": "/roles set — bind a Discord role to ping 15m and 5m before a timer/"
-             "event starts. /roles clear — unbind one. /roles message — repost "
-             "just the self-assign role buttons without touching the board.",
-    "language": "/language set — switches the board, pings, and button labels "
-                "between English and Russian for this server.",
-    "names": "/names set — give an event/boss its own name in a language (e.g. "
-             "a nickname like \"Halcy\"). /names clear — reset one back to default.",
+    "roles": "/config roles set — bind a Discord role to ping before a timer/event "
+             "starts (15m+5m, or 30m+5m for Tokens). /config roles clear — unbind "
+             "one. /config roles message — repost just the self-assign role "
+             "buttons without touching the board.",
+    "language": "/config language set — switches the board, pings, and button "
+                "labels between English and Russian for this server.",
+    "names": "/config names set — give an event/boss its own name in a language "
+             "(e.g. a nickname like \"Halcy\"). /config names clear — reset one "
+             "back to default.",
     "clear_cmd": "Deletes this bot's own messages in the current channel (old "
                  "board posts, ping alerts, leftover confirmations) — never "
                  "other users' messages.",
-    "buttons": "/buttons hide/show — controls which individual preset/role "
+    "buttons": "/config buttons hide/show — controls which individual preset/role "
                "buttons appear on this server's board and role message.",
-    "pings": "/pings message set — customize the outgoing ping text (placeholders "
-             "{role} {event} {time}). /pings disable/enable — silence a specific "
-             "target's alerts without unbinding its role.",
-    "board": "/board time-format — customize the board's own \"6m left\"/\"in 1h\" "
-             "wording for Live Now and Upcoming rows. /board category-set — move an "
-             "event between Bosses & PVP and Upcoming Events. /board hide-event — "
-             "remove an event from the board and its pings entirely. /roles hide/show "
-             "— remove or repost the opt-in role message entirely. All change how the "
-             "bot presents to the whole server, so this defaults stricter than most.",
+    "pings": "/config pings message set — customize the outgoing ping text "
+             "(placeholders {role} {event} {time}). /config pings disable/enable "
+             "— silence a specific target's alerts without unbinding its role.",
+    "board": "/config board time-format — customize the board's own \"6m left\"/"
+             "\"in 1h\" wording for Live Now, Upcoming, and Appeared rows. "
+             "/config board category-set — move an event between Bosses & PVP "
+             "and Upcoming Events. /config board hide-event — remove an event "
+             "from the board and its pings entirely. /config roles hide/show — "
+             "remove or repost the opt-in role message entirely. All change how "
+             "the bot presents to the whole server, so this defaults stricter "
+             "than most.",
 }
 # setup/language/board default stricter (Manage Server) than the rest — each
 # changes how the bot presents to the WHOLE server (board layout, entire
@@ -387,7 +397,7 @@ def _has_permission_level(member: discord.Member, level: str) -> bool:
 def require_permission(target):
     """App-command check that reads the guild's configured level for `target`
     (falling back to its default) instead of a level fixed at decoration time —
-    this is what makes /permissions set actually change enforcement per guild."""
+    this is what makes /config permissions set actually change enforcement per guild."""
     async def predicate(interaction: discord.Interaction) -> bool:
         entry = gd(interaction.guild_id)
         level = _permission_level(entry, target)
@@ -420,7 +430,10 @@ PING_TARGETS = [("guild_boss", "Guild Boss"), ("jmg", "JMG"),
                 ("morpheus", "Morpheus"), ("rangora", "Rangora"),
                 ("skyfin", "Skyfin"), ("halcy", "Halcy"),
                 ("tokens", "Tokens")]
-PING_LABELS = dict(PING_TARGETS)
+# Shared by every command that needs a "which ping target" dropdown
+# (/config roles set|clear, /config pings disable|enable) — built once here
+# instead of each command rebuilding the same list inline.
+PING_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS]
 SCHEDULE_PING_KEYS = {"jmg", "skyfin", "halcy", "tokens"}
 # ping target key -> list of underlying schedule event key(s) it covers
 SCHEDULE_KEY_ALIAS = {"halcy": ["golden_plains"], "tokens": ["prairie", "invasion"]}
@@ -429,12 +442,12 @@ NAME_TO_PING_KEY = {label.lower(): key for key, label in PING_TARGETS
 
 
 # ── Localization ─────────────────────────────────────────────────────────────────
-# Every event/boss name is admin-editable per language via /names set — these are
+# Every event/boss name is admin-editable per language via /config names set — these are
 # just the defaults. English defaults are pulled straight from the schedule data
 # (one source of truth for spelling) plus the four custom-timer/ping-only targets.
 # DEFAULT_NAMES_RU is a provided community translation (not guessed) covering the
 # weekly bosses/sieges, the fixed daily events, most in-game-clock dailies, and
-# two of the four ping-only targets; /names set still overrides either on a
+# two of the four ping-only targets; /config names set still overrides either on a
 # per-guild basis, and still covers anything not listed here (Normal CR, and the
 # morpheus/halcy ping-only targets, have no built-in Russian name yet).
 def _collect_default_names():
@@ -494,7 +507,7 @@ UI = {
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
                          "15 and 5 minutes before that timer starts (30 and 5 for "
                          "Prairie/Invasion).\n\n"
-                         "*An admin binds each button to a role with `/roles set`.*"),
+                         "*An admin binds each button to a role with `/config roles set`.*"),
         "ping_template": "{role} **{event}** in {time}!",
         "live_time_format": "{time} left",
         "upcoming_time_format": "in {time}",
@@ -513,7 +526,7 @@ UI = {
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
                          "уведомление за 15 и за 5 минут до начала (за 30 и за 5 минут "
                          "для Prairie/Invasion).\n\n"
-                         "*Админ привязывает роль к кнопке командой `/roles set`.*"),
+                         "*Админ привязывает роль к кнопке командой `/config roles set`.*"),
         "ping_template": "{role} **{event}** через {time}!",
         "live_time_format": "осталось {time}",
         "upcoming_time_format": "через {time}",
@@ -561,13 +574,15 @@ CUSTOM_TIMER_KEEP_SECS = 2 * 3600
 
 
 def _render_time_text(entry, kind, time_str):
-    """Guild's own wording (via /board time-format) for the trailing time text
+    """Guild's own wording (via /config board time-format) for the trailing time text
     on a board row — "live" -> default "{time} left", "upcoming" -> default
-    "in {time}". Falls back to the language default on a malformed override."""
+    "in {time}", "appeared" -> default "Appeared! {time} elapsed". Falls back to
+    the language default on a malformed override (any .format() failure, not
+    just a bad placeholder name — e.g. an unbalanced "{" is a ValueError)."""
     template = entry.get(f"{kind}_time_format") or ui(entry, f"{kind}_time_format")
     try:
         return template.format(time=time_str)
-    except (KeyError, IndexError):
+    except Exception:
         return UI[entry.get("language", "en")][f"{kind}_time_format"].format(time=time_str)
 
 
@@ -706,7 +721,7 @@ async def _reply_dismiss(interaction: discord.Interaction, content: str = None, 
 # The stored timer NAME is always the canonical English key text (it's how
 # NAME_TO_PING_KEY matches it for pings/board display) — only the visible button
 # LABEL and the confirmation message get translated. This is the whole point of
-# the key/name split: renaming a boss via /names set can never break matching,
+# the key/name split: renaming a boss via /config names set can never break matching,
 # because matching never looks at the display name, only at this fixed literal.
 PRESET_BUTTON_KEYS = {"preset_guild_boss": "guild_boss", "preset_morph": "morpheus",
                        "preset_rangora": "rangora"}
@@ -728,7 +743,7 @@ class PresetView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Runs before any button in this view. Level is per-guild configurable
-        via /permissions set target:preset_timers — defaults to "everyone".
+        via /config permissions set target:preset_timers — defaults to "everyone".
         RoleButtonView (self-assign ping roles) is untouched and stays open."""
         entry = gd(interaction.guild_id)
         level = _permission_level(entry, "preset_timers")
@@ -801,8 +816,9 @@ ROLE_BUTTON_KEYS = {"role_jmg": "jmg", "role_rangora": "rangora", "role_morpheus
                      "role_tokens": "tokens"}
 
 
-# Self-assign buttons for the ping-role targets (posted once via /roles message,
-# stays forever). Toggles whatever role is currently bound via /roles set — no
+# Self-assign buttons for the ping-role targets (posted once via /config roles
+# message, stays forever). Toggles whatever role is currently bound via
+# /config roles set — no
 # re-post needed if the role binding changes later.
 class RoleButtonView(discord.ui.View):
     def __init__(self, entry=None):
@@ -824,7 +840,7 @@ class RoleButtonView(discord.ui.View):
         role_id = entry["ping_roles"].get(key)
         if not role_id:
             await _reply_dismiss(interaction, f"No role is bound to **{label}** yet — "
-                                  f"an admin needs to run `/roles set`.")
+                                  f"an admin needs to run `/config roles set`.")
             return
         role = interaction.guild.get_role(role_id)
         if role is None:
@@ -982,13 +998,14 @@ def _alert_timing_text(key):
 
 
 def _render_ping_message(entry, role_id, label, window_label):
-    """Guild's own template (set via /pings message set) if any, else the
-    language's default. Falls back to the default on a bad/malformed custom
-    template (e.g. a typo'd placeholder) rather than ever failing to ping."""
+    """Guild's own template (set via /config pings message set) if any, else the
+    language's default. Falls back to the default on any malformed custom
+    template (e.g. a typo'd placeholder or unbalanced brace) rather than ever
+    failing to ping."""
     template = entry.get("ping_template") or ui(entry, "ping_template")
     try:
         return template.format(role=f"<@&{role_id}>", event=label, time=window_label)
-    except (KeyError, IndexError):
+    except Exception:
         default = UI[entry.get("language", "en")]["ping_template"]
         return default.format(role=f"<@&{role_id}>", event=label, time=window_label)
 
@@ -996,7 +1013,7 @@ def _render_ping_message(entry, role_id, label, window_label):
 async def _check_pings(guild_id, entry, channel, now_ts):
     """Ping the configured role before a timer/event starts: 15m+5m for custom
     timers and most schedule targets, 30m+5m for Tokens (Prairie/Invasion).
-    Skips any target listed in entry["disabled_pings"] (/pings disable)."""
+    Skips any target listed in entry["disabled_pings"] (/config pings disable)."""
     ping_roles = entry["ping_roles"]
     if not ping_roles:
         return
@@ -1018,7 +1035,7 @@ async def _check_pings(guild_id, entry, channel, now_ts):
     now_dt = datetime.now(MOSCOW)
     # count=60 so a schedule target isn't missed just because other events fill
     # the first few nearer-term slots. disabled=disabled_events (board-hidden, not
-    # to be confused with `disabled` above which is /pings disable's per-target list)
+    # to be confused with `disabled` above which is /config pings disable's per-target list)
     # so a fully-hidden event can't still ping.
     occs = upcoming_occurrences(now_dt, count=60, disabled=entry["disabled_events"])
 
@@ -1218,6 +1235,13 @@ async def setup_cmd(interaction: discord.Interaction):
 timer_group = app_commands.Group(name="timer", description="Custom countdown timers (guild boss respawns etc.)")
 
 
+# Canonical (English, stored) names for the three preset timers — same literals
+# PresetView._start uses — offered as autocomplete suggestions on /timer start's
+# name field so it doesn't require memorizing exact spelling, without removing
+# the ability to type any other custom name.
+PRESET_TIMER_NAMES = ["Guild Boss", "Morpheus", "Rangora"]
+
+
 @timer_group.command(name="start", description="Start a custom countdown timer")
 @app_commands.describe(name="Timer name (e.g. Kraken)", hours="Hours (0-72)", minutes="Minutes (0-59)")
 @require_permission("timer")
@@ -1256,6 +1280,18 @@ async def timer_start(interaction: discord.Interaction, name: str,
         "It'll appear on the live board within 5s.")
 
 
+@timer_start.autocomplete("name")
+async def timer_start_name_autocomplete(interaction: discord.Interaction, current: str):
+    entry = gd(interaction.guild_id)
+    current = current.lower()
+    choices = []
+    for canonical in PRESET_TIMER_NAMES:
+        display = get_name(entry, NAME_TO_PING_KEY[canonical.lower()], canonical)
+        if current in display.lower() or current in canonical.lower():
+            choices.append(app_commands.Choice(name=display, value=canonical))
+    return choices
+
+
 @timer_group.command(name="list", description="List running custom timers")
 @require_permission("timer")
 async def timer_list(interaction: discord.Interaction):
@@ -1280,20 +1316,28 @@ async def timer_list(interaction: discord.Interaction):
 @require_permission("timer")
 async def timer_cancel(interaction: discord.Interaction, name: str):
     entry = gd(interaction.guild_id)
+    display = _custom_timer_name(entry, {"name": name})
     before = len(entry["custom_timers"])
     entry["custom_timers"] = [t for t in entry["custom_timers"] if t["name"] != name]
     if len(entry["custom_timers"]) == before:
-        await _reply_dismiss(interaction, f"No timer named **{name}**.")
+        await _reply_dismiss(interaction, f"No timer named **{display}**.")
         return
     save_data(guild_data)
-    await _reply_dismiss(interaction, f"Cancelled **{name}**.")
+    await _reply_dismiss(interaction, f"Cancelled **{display}**.")
 
 
 @timer_cancel.autocomplete("name")
 async def timer_cancel_autocomplete(interaction: discord.Interaction, current: str):
+    # Localized display name shown in the dropdown; value stays the raw stored
+    # name since that's what actually gets matched for cancellation.
     entry = gd(interaction.guild_id)
-    return [app_commands.Choice(name=t["name"], value=t["name"])
-            for t in entry["custom_timers"] if current.lower() in t["name"].lower()][:25]
+    current = current.lower()
+    choices = []
+    for t in entry["custom_timers"]:
+        display = _custom_timer_name(entry, t)
+        if current in t["name"].lower() or current in display.lower():
+            choices.append(app_commands.Choice(name=display, value=t["name"]))
+    return choices[:25]
 
 
 client.tree.add_command(timer_group)
@@ -1308,13 +1352,13 @@ client.tree.add_command(timer_group)
 config_group = app_commands.Group(name="config", description="Configure the bot for this server")
 
 
-roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged 15m and 5m before a timer starts",
+roles_group = app_commands.Group(name="roles", description="Configure which role gets pinged before a timer/event starts",
                                   parent=config_group)
 
 
-@roles_group.command(name="set", description="Ping a role 15 minutes and 5 minutes before this timer starts")
+@roles_group.command(name="set", description="Ping a role before this timer/event starts (15m+5m, or 30m+5m for Tokens)")
 @app_commands.describe(target="Which timer/event", role="Role to ping")
-@app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
+@app_commands.choices(target=PING_TARGET_CHOICES)
 @require_permission("roles")
 async def roles_set(interaction: discord.Interaction, target: app_commands.Choice[str], role: discord.Role):
     entry = gd(interaction.guild_id)
@@ -1326,7 +1370,7 @@ async def roles_set(interaction: discord.Interaction, target: app_commands.Choic
 
 @roles_group.command(name="clear", description="Stop pinging a role for this timer")
 @app_commands.describe(target="Which timer/event")
-@app_commands.choices(target=[app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS])
+@app_commands.choices(target=PING_TARGET_CHOICES)
 @require_permission("roles")
 async def roles_clear(interaction: discord.Interaction, target: app_commands.Choice[str]):
     entry = gd(interaction.guild_id)
@@ -1371,7 +1415,7 @@ async def roles_hide(interaction: discord.Interaction):
     entry["role_message_id"] = None
     save_data(guild_data)
     await _reply_dismiss(interaction, "Role message hidden" + (" and deleted." if deleted else
-                          " (already gone). ") + " /setup won't repost it until /roles show.")
+                          " (already gone). ") + " /setup won't repost it until /config roles show.")
 
 
 @roles_group.command(name="show", description="Repost the opt-in role message (same as /roles message)")
@@ -1559,7 +1603,6 @@ async def buttons_list(interaction: discord.Interaction):
 
 pings_group = app_commands.Group(name="pings", description="Customize or silence outgoing ping alerts on this server",
                                   parent=config_group)
-PING_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in PING_TARGETS]
 
 
 @pings_group.command(name="message", description="Set a custom template for outgoing ping messages on this server")
@@ -1568,9 +1611,9 @@ PING_TARGET_CHOICES = [app_commands.Choice(name=label, value=key) for key, label
 async def pings_message(interaction: discord.Interaction, text: str):
     try:
         text.format(role="<@&0>", event="Test", time="5m")
-    except (KeyError, IndexError) as e:
-        await _reply_dismiss(interaction, f"That template has a bad placeholder ({e}) — only "
-                              "{role}, {event}, and {time} are valid.")
+    except Exception as e:
+        await _reply_dismiss(interaction, f"That template isn't valid ({e}) — only "
+                              "{role}, {event}, and {time} are valid placeholders.")
         return
     entry = gd(interaction.guild_id)
     entry["ping_template"] = text.strip()[:200]
@@ -1643,9 +1686,9 @@ BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
 async def board_time_format(interaction: discord.Interaction, kind: app_commands.Choice[str], text: str):
     try:
         text.format(time="5m")
-    except (KeyError, IndexError) as e:
-        await _reply_dismiss(interaction, f"That template has a bad placeholder ({e}) — only "
-                              "{time} is valid.")
+    except Exception as e:
+        await _reply_dismiss(interaction, f"That template isn't valid ({e}) — only "
+                              "{time} is a valid placeholder.")
         return
     entry = gd(interaction.guild_id)
     entry[f"{kind.value}_time_format"] = text.strip()[:100]
