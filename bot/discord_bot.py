@@ -53,10 +53,11 @@ Category, and Events all under one entry in the "/" picker:
                                            default. section:Events action:Hide removes an event from the
                                            board (and its pings) entirely; action:Show brings it back.
                                            Every section also supports action:List.
-    /config emoji action key emoji      - action:Set changes the icon next to a board/role-message
-                                           header or each custom-timer row (type/paste any standard
-                                           emoji or this server's own custom emoji); action:Reset
-                                           restores the default; action:List shows all
+    /config emoji action key emoji      - action:Set changes the icon next to any board header, boss,
+                                           or event (key autocompletes over every UI header, every
+                                           scheduled event, and the 3 preset custom-timer bosses; type/
+                                           paste any standard emoji or this server's own custom emoji);
+                                           action:Reset restores the default; action:List shows all
 
 Russian ping alerts already use a fully-localized template ("{role} {event}
 через {time}!") by default — the event name comes from /config names as
@@ -72,12 +73,15 @@ the old entry and replaces it with a fresh countdown, instead of running both
 side by side.
 
 Permission levels are per-guild and configurable — see /config permissions
-above. Defaults: preset buttons = everyone; /setup, /config language,
-and /config board (incl. /config roles section:Visibility, /config emoji)
-= Manage Server (whole-server presentation); everything else (/timer,
-/config roles section:Ping|Message, /config names, /clear, /config buttons,
-/config pings) = Manage Messages. /config permissions itself always
+above. Defaults: preset buttons = Send Messages, /timer = Manage Messages
+(both just start/manage a countdown, kept low-friction for regular raid
+members); every other gated command/button (/setup, /config roles,
+/config language, /config names, /clear, /config buttons, /config pings,
+/config board, /config emoji) = Manage Server, since each one changes bot
+state that's visible to the whole server. /config permissions itself always
 requires Manage Server, hardcoded, so it can't be used to lower its own bar.
+Any guild that's already set its own level for a target via /config
+permissions keeps that override — these are just fallback defaults.
 """
 
 import os
@@ -363,23 +367,30 @@ PERMISSION_TARGET_DESCRIPTIONS = {
              "remove or repost the opt-in role message entirely. /config emoji — "
              "customize the icon next to each board/role-message header or timer "
              "row, including this server's own custom emoji. All change how "
-             "the bot presents to the whole server, so this defaults stricter "
-             "than most.",
+             "the bot presents to the whole server, so this defaults to "
+             "Manage Server like almost everything else in /config.",
 }
-# setup/language/board default stricter (Manage Server) than the rest — each
-# changes how the bot presents to the WHOLE server (board layout, entire
-# language, wording format, or the opt-in message's presence), not just a
-# single binding/name/timer, so it isn't just a Manage Messages-level action.
+# Everyone is reserved for read-only actions and role self-assign (the
+# opt-in buttons bypass the permission system entirely, on purpose). Preset
+# buttons and /timer start are the two exceptions below Manage Server — both
+# just start a countdown, so they're kept low-friction for regular raid
+# members (Send Messages / Manage Messages respectively). Everything else
+# changes the bot's shared/server-wide state (bindings, wording, layout,
+# board presence, deleting messages) and defaults to Manage Server
+# (admin-level) — these are just fallbacks, not floors: any guild that's
+# already run /config permissions to set its own level for a target keeps
+# that override, since _permission_level() always checks entry["permissions"]
+# first.
 DEFAULT_PERMISSION_LEVELS = {
-    "preset_timers": "everyone",
+    "preset_timers": "send_messages",
     "timer": "manage_messages",
     "setup": "manage_server",
-    "roles": "manage_messages",
+    "roles": "manage_server",
     "language": "manage_server",
-    "names": "manage_messages",
-    "clear_cmd": "manage_messages",
-    "buttons": "manage_messages",
-    "pings": "manage_messages",
+    "names": "manage_server",
+    "clear_cmd": "manage_server",
+    "buttons": "manage_server",
+    "pings": "manage_server",
     "board": "manage_server",
 }
 PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "send_messages": "Send Messages",
@@ -475,8 +486,24 @@ def _collect_default_names():
     return names
 
 
+def _collect_default_event_emoji():
+    """Every board event's built-in icon, straight from the schedule tuples —
+    the same source DEFAULT_NAMES pulls its labels from, so a board row's
+    icon and name always agree with each other by construction."""
+    icons = {}
+    for day in WEEKLY_SCHEDULE.values():
+        for key, icon, _name, _times in day:
+            icons.setdefault(key, icon)
+    for key, icon, _name, _times in DAILY_TIMED_EVENTS:
+        icons.setdefault(key, icon)
+    for key, icon, _name, _hour in DAILY_INGAME_EVENTS:
+        icons.setdefault(key, icon)
+    return icons
+
+
 DEFAULT_NAMES = _collect_default_names()
 BOARD_EVENT_KEYS = frozenset(DEFAULT_NAMES.keys())   # captured before the ping-only targets below are added in
+DEFAULT_EVENT_EMOJI = _collect_default_event_emoji()
 DEFAULT_NAMES.update({"guild_boss": "Guild Boss", "morpheus": "Morpheus",
                        "rangora": "Rangora", "halcy": "Halcy", "tokens": "Tokens"})
 
@@ -552,11 +579,14 @@ def ui(entry, key):
     return UI[entry.get("language", "en")][key]
 
 
-# Default leading icon for each emoji-bearing UI element. Language-independent
-# (unlike UI's text) since an emoji reads the same in any language. Written as
-# Discord shortcode text rather than the raw glyph purely for source
-# readability — Discord's own message renderer converts a bot-sent
-# ":shortcode:" to the real emoji server-side, same as if a human typed it.
+# Default leading icon for every emoji-bearing element on the board: the 6
+# fixed UI headers/rows below, plus every board event's icon (pulled from
+# DEFAULT_EVENT_EMOJI, i.e. the schedule data itself) merged in beneath.
+# Language-independent (unlike UI's text) since an emoji reads the same in
+# any language. Written as Discord shortcode text rather than the raw glyph
+# purely for source readability — Discord's own message renderer converts a
+# bot-sent ":shortcode:" to the real emoji server-side, same as if a human
+# typed it.
 DEFAULT_EMOJI = {
     "title": ":spiral_calendar_pad:",
     "custom_timers": ":stopwatch:",
@@ -565,15 +595,25 @@ DEFAULT_EMOJI = {
     "opt_in_title": ":bell:",
     "custom_timer_row": ":stopwatch:",
 }
+DEFAULT_EMOJI.update(DEFAULT_EVENT_EMOJI)
+# Guild Boss/Morpheus/Rangora only ever appear as custom-timer rows (never as
+# schedule occurrences, so they have no built-in icon from DEFAULT_EVENT_EMOJI)
+# — give each its own independently overridable slot, same default as any
+# other custom timer until an admin customizes it specifically.
+for _preset_key in ("guild_boss", "morpheus", "rangora"):
+    DEFAULT_EMOJI.setdefault(_preset_key, DEFAULT_EMOJI["custom_timer_row"])
+# Every key an admin can target with /config emoji: the 6 fixed UI elements
+# plus every board event plus the 3 preset custom-timer bosses.
+EMOJI_KEYS = frozenset(DEFAULT_EMOJI.keys())
 
 
 def get_emoji(entry, key):
-    """Per-guild emoji override for a UI element, falling back to
+    """Per-guild emoji override for a board/UI element, falling back to
     DEFAULT_EMOJI — same override pattern as get_name, but for the leading
     icon instead of the label text. Admins set this via /config emoji; a
     custom server emoji only ever renders correctly inside its own server,
     which is exactly the case here (each guild only ever sees its own board)."""
-    return entry["ui_emoji"].get(key, DEFAULT_EMOJI[key])
+    return entry["ui_emoji"].get(key, DEFAULT_EMOJI.get(key, ":stopwatch:"))
 
 
 def ui_emoji(entry, key):
@@ -634,7 +674,7 @@ def _live_line(entry, occ, now):
     # format instead of a bare countdown.
     epoch = int(occ.end.timestamp())
     msk_t = occ.end.strftime("%H:%M")
-    return (f"{occ.icon} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
+    return (f"{get_emoji(entry, occ.key)} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
             f"· MSK {msk_t} · {_render_time_text(entry, 'live', fmt_rem(rem))}")
 
 
@@ -645,7 +685,7 @@ def _upcoming_line(entry, occ, now):
     # alongside it since that's the server's actual clock.
     epoch = int(occ.dt.timestamp())
     msk_t = occ.dt.strftime("%H:%M")
-    return (f"{occ.icon} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
+    return (f"{get_emoji(entry, occ.key)} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
             f"· MSK {msk_t} · {_render_time_text(entry, 'upcoming', fmt_rem(secs))}")
 
 
@@ -668,6 +708,15 @@ def _custom_timer_name(entry, t):
     return get_name(entry, key, t["name"]) if key else t["name"]
 
 
+def _custom_timer_emoji(entry, t):
+    """Same key-match as _custom_timer_name, but for the row's leading icon —
+    a preset boss (Guild Boss/Morpheus/Rangora) gets its own independently
+    overridable icon; any other /timer start name falls back to the generic
+    custom_timer_row default."""
+    key = NAME_TO_PING_KEY.get(t["name"].strip().lower())
+    return get_emoji(entry, key if key else "custom_timer_row")
+
+
 def build_embed(entry):
     now = datetime.now(MOSCOW)
 
@@ -679,12 +728,12 @@ def build_embed(entry):
             # Counts UP once it appears (kept for CUSTOM_TIMER_KEEP_SECS total)
             # instead of a static "UP!" that gave no sense of how long ago.
             elapsed = -rem
-            row_emoji = get_emoji(entry, "custom_timer_row")
+            row_emoji = _custom_timer_emoji(entry, t)
             custom_lines.append(f"{row_emoji} **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(elapsed))}")
         else:
             epoch = int(t["end"])
             msk_t = datetime.fromtimestamp(t["end"], tz=MOSCOW).strftime("%H:%M")
-            row_emoji = get_emoji(entry, "custom_timer_row")
+            row_emoji = _custom_timer_emoji(entry, t)
             custom_lines.append(f"{row_emoji} **{name}** — <t:{epoch}:t> · MSK {msk_t} · "
                                  f"{_render_time_text(entry, 'live', fmt_rem(rem))}")
 
@@ -1346,10 +1395,10 @@ async def timer_list(interaction: discord.Interaction):
         await _reply_dismiss(interaction, "No custom timers running.")
         return
     now_ts = datetime.now(MOSCOW).timestamp()
-    row_emoji = get_emoji(entry, "custom_timer_row")
     lines = []
     for t in entry["custom_timers"]:
         name = _custom_timer_name(entry, t)
+        row_emoji = _custom_timer_emoji(entry, t)
         rem = t["end"] - now_ts
         if rem <= 0:
             lines.append(f"{row_emoji} **{name}** — {_render_time_text(entry, 'appeared', fmt_rem(-rem))}")
@@ -1872,48 +1921,61 @@ async def board_cmd_key_autocomplete(interaction: discord.Interaction, current: 
             if current in k.lower() or current in DEFAULT_NAMES[k].lower()][:25]
 
 
-EMOJI_TARGET_CHOICES = [
-    app_commands.Choice(name="Title (board header)", value="title"),
-    app_commands.Choice(name="Guild Timers (custom timer section header)", value="custom_timers"),
-    app_commands.Choice(name="Bosses & PVP (section header)", value="bosses_pvp"),
-    app_commands.Choice(name="Upcoming Events (section header)", value="daily_cycles"),
-    app_commands.Choice(name="Opt-In Title (role message header)", value="opt_in_title"),
-    app_commands.Choice(name="Custom Timer Row (each guild timer line)", value="custom_timer_row"),
-]
+# Display label for every /config emoji-customizable key: the 6 fixed UI
+# elements, plus every board event and preset custom-timer boss (reusing
+# DEFAULT_NAMES so the label always matches what /config names shows).
+EMOJI_KEY_LABELS = {
+    "title": "Title (board header)",
+    "custom_timers": "Guild Timers (custom timer section header)",
+    "bosses_pvp": "Bosses & PVP (section header)",
+    "daily_cycles": "Upcoming Events (section header)",
+    "opt_in_title": "Opt-In Title (role message header)",
+    "custom_timer_row": "Custom Timer Row (fallback for any /timer name not listed below)",
+    **{k: v for k, v in DEFAULT_NAMES.items() if k in EMOJI_KEYS},
+}
 EMOJI_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
                         app_commands.Choice(name="Reset", value="reset"),
                         app_commands.Choice(name="List", value="list")]
 
 
-@config_group.command(name="emoji", description="Customize the emoji shown next to board headers and timer rows on this server")
-@app_commands.describe(action="Set, Reset, or List", key="Which UI element (Set/Reset only)",
+@config_group.command(name="emoji", description="Customize the emoji shown next to any board header, boss, or event on this server")
+@app_commands.describe(action="Set, Reset, or List", key="Which header/boss/event (Set/Reset only, type to search)",
                         emoji="Type or paste an emoji — a standard one, or this server's own custom emoji (Set only)")
-@app_commands.choices(action=EMOJI_ACTION_CHOICES, key=EMOJI_TARGET_CHOICES)
+@app_commands.choices(action=EMOJI_ACTION_CHOICES)
 @require_permission("board")
 async def emoji_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
-                     key: Optional[app_commands.Choice[str]] = None, emoji: Optional[str] = None):
+                     key: Optional[str] = None, emoji: Optional[str] = None):
     entry = gd(interaction.guild_id)
     if action.value == "list":
-        lines = [f"**{c.name}** — {get_emoji(entry, c.value)}" +
-                 (" *(custom)*" if c.value in entry["ui_emoji"] else "") for c in EMOJI_TARGET_CHOICES]
-        await _reply_dismiss(interaction, "\n".join(lines))
+        lines = [f"**{label}** — {get_emoji(entry, k)}" + (" *(custom)*" if k in entry["ui_emoji"] else "")
+                 for k, label in sorted(EMOJI_KEY_LABELS.items(), key=lambda kv: kv[1])]
+        text = "\n".join(lines)
+        await _reply_dismiss(interaction, text[:1950] + ("\n…" if len(text) > 1950 else ""))
         return
-    if key is None:
-        await _reply_dismiss(interaction, "`key` is required for Set/Reset.")
+    if key is None or key not in EMOJI_KEY_LABELS:
+        await _reply_dismiss(interaction, f"Unknown key `{key}` — pick one from the autocomplete list.")
         return
+    label = EMOJI_KEY_LABELS[key]
     if action.value == "set":
         if emoji is None or not emoji.strip():
             await _reply_dismiss(interaction, "`emoji` is required to Set.")
             return
-        entry["ui_emoji"][key.value] = emoji.strip()[:100]
+        entry["ui_emoji"][key] = emoji.strip()[:100]
         save_data(guild_data)
-        await _reply_dismiss(interaction, f"**{key.name}** now uses {emoji.strip()[:100]}. Board updates within "
+        await _reply_dismiss(interaction, f"**{label}** now uses {emoji.strip()[:100]}. Board updates within "
                               "5s; repost the role message via `/config roles` section:Message to update it there too.")
     else:
-        had = entry["ui_emoji"].pop(key.value, None) is not None
+        had = entry["ui_emoji"].pop(key, None) is not None
         save_data(guild_data)
-        await _reply_dismiss(interaction, f"**{key.name}** reset to the default."
-                              if had else f"**{key.name}** was already default.")
+        await _reply_dismiss(interaction, f"**{label}** reset to the default."
+                              if had else f"**{label}** was already default.")
+
+
+@emoji_cmd.autocomplete("key")
+async def emoji_cmd_key_autocomplete(interaction: discord.Interaction, current: str):
+    current = current.lower()
+    return [app_commands.Choice(name=label, value=k) for k, label in EMOJI_KEY_LABELS.items()
+            if current in k.lower() or current in label.lower()][:25]
 
 
 client.tree.add_command(config_group)
@@ -1924,7 +1986,8 @@ client.tree.add_command(config_group)
 async def clear_cmd(interaction: discord.Interaction):
     # Only ever touches messages this bot itself sent (board/ping/confirmation
     # leftovers) — never other users' messages, so it's safe without a confirm
-    # step. Gated on Manage Messages, same bar as the preset timer buttons.
+    # step. Defaults to Manage Server, admin-level like everything else that
+    # touches shared/server-wide state.
     await interaction.response.defer(ephemeral=True)
     bot_id = client.user.id
     try:

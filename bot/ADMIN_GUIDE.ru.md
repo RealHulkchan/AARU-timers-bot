@@ -20,7 +20,7 @@ Show и т.д.), так что одна команда покрывает всё
 | `/config buttons` (action: Hide/Show/List) | Скрыть/показать отдельные кнопки |
 | `/config pings` (section: Message/Alerts) | Свой текст пинга; отключить/восстановить пинг для цели без отвязки роли |
 | `/config board` (section: Wording/Category/Events) | Свой текст строк, перемещение событий между «Боссы и PvP» / «Ближайшие события», или полное скрытие события |
-| `/config emoji` (action: Set/Reset/List) | Свой значок рядом с заголовками доски/сообщения с ролями и строками таймеров, включая свой эмодзи сервера |
+| `/config emoji` (action: Set/Reset/List, поиск по `key`) | Свой значок рядом с любым заголовком, боссом или событием — каждый заголовок, каждое событие расписания и Guild Boss/Morpheus/Rangora, независимо, включая свой эмодзи сервера |
 | `/clear` | Удалить сообщения самого бота в этом канале |
 
 ## Цели для пингов
@@ -31,7 +31,7 @@ Guild Boss, JMG, Morpheus, Rangora, Skyfin, Halcy (= Golden Plains Battle), Toke
 
 preset_timers, timer, setup, roles, language, names, clear_cmd, buttons, pings, board — для каждой отдельно задаётся уровень: Everyone / Send Messages / Manage Messages / Manage Server.
 
-По умолчанию: кнопки-пресеты = Everyone. `setup`, `language`, `board` (включает и `/config roles` section:Visibility, и `/config emoji`) = Manage Server — эти команды меняют то, как бот выглядит для *всего сервера* (расположение, язык, текст, видимость событий или само наличие сообщения с ролями). Всё остальное = Manage Messages. Сама `/config permissions` жёстко закреплена на Manage Server.
+По умолчанию: кнопки-пресеты = Send Messages, `timer` = Manage Messages — оба просто запускают/управляют отсчётом, поэтому порог ниже остальных. Всё остальное = Manage Server, так как это меняет состояние бота, видимое всему серверу (привязки, текст, расположение, наличие доски, удаление сообщений). Сама `/config permissions` жёстко закреплена на Manage Server. Это только значения по умолчанию — если сервер уже задал свой уровень для цели через `/config permissions`, это переопределение сохраняется.
 
 ## Заметки
 
