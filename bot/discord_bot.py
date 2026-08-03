@@ -1672,7 +1672,7 @@ async def pings_alerts(interaction: discord.Interaction, action: app_commands.Ch
                               if had else f"**{get_name(entry, target.value)}** wasn't silenced.")
 
 
-board_group = app_commands.Group(name="board", description="Customize board wording, event sections, and event visibility (whole-server presentation, Manage Server)",
+board_group = app_commands.Group(name="board", description="Customize board wording, event sections, and visibility (Manage Server)",
                                   parent=config_group)
 BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
                       app_commands.Choice(name="Upcoming rows", value="upcoming"),
