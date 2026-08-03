@@ -1243,6 +1243,13 @@ async def ping_loop_error(error: BaseException):
 @tasks.loop(seconds=5)
 async def refresh_loop():
     expired_any = False
+    # Guards against two guild entries somehow pointing at the same
+    # channel_id/message_id (stale/duplicated data, a copy-pasted config,
+    # etc.) — without this, a single tick would silently fire the identical
+    # PATCH twice, which is enough to keep tripping Discord's per-message
+    # edit rate limit forever even though this loop itself only intends one
+    # edit per message per tick.
+    seen_messages = set()
     for guild_id, entry in list(guild_data.items()):
         # Everything for this guild is wrapped defensively: discord.py's
         # tasks.loop STOPS PERMANENTLY (no auto-restart) the first time its
@@ -1265,6 +1272,14 @@ async def refresh_loop():
             channel = await _resolve_channel(guild_id, entry)
             if channel is None:
                 continue
+
+            msg_key = (entry["channel_id"], entry.get("message_id"))
+            if entry.get("message_id") and msg_key in seen_messages:
+                print(f"[TICK] guild {guild_id}: duplicate board binding for message "
+                      f"{entry['message_id']} — another guild entry already edited it "
+                      "this tick, skipping to avoid a self-inflicted rate limit.")
+                continue
+            seen_messages.add(msg_key)
 
             embed = build_embed(entry)
             try:
