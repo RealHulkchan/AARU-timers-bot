@@ -560,7 +560,7 @@ def ui(entry, key):
 DEFAULT_EMOJI = {
     "title": ":spiral_calendar_pad:",
     "custom_timers": ":stopwatch:",
-    "bosses_pvp": ":small_orange_diamond:",
+    "bosses_pvp": ":crossed_swords:",
     "daily_cycles": ":clock1:",
     "opt_in_title": ":bell:",
     "custom_timer_row": ":stopwatch:",
