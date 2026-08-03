@@ -538,7 +538,6 @@ def localized_occ_name(entry, occ):
 # use "##" (renders large/bold) and rows get a full blank line of breathing room —
 # fields force a cramped fixed layout that can't do either.
 EMBED_COLOR = 0xC8A96E
-UPCOMING_PER_SECTION = 6
 
 
 def _render_time_text(entry, kind, time_str):
@@ -618,11 +617,17 @@ def build_embed(entry):
     # An event already shown under Live Now is excluded from Upcoming — otherwise
     # its NEXT occurrence (the one after the one currently running) shows up there
     # too, which reads as if it's about to happen again imminently.
+    # No count cap here — _dedupe_next already keeps exactly one (the soonest)
+    # occurrence per event key, so every distinct event gets shown once; a second
+    # instance of the SAME event is the only thing ever hidden. Capping the list on
+    # top of that used to silently drop whole events whenever a category had more
+    # than a handful of distinct keys (e.g. after moving one in via /board
+    # category-set), which read as "it just vanished" rather than "it's rare".
     occs = upcoming_occurrences(now, count=60)
     up_primary   = _dedupe_next(o for o in occs if is_primary(o.key)
-                                 and o.key not in active_primary_keys)[:UPCOMING_PER_SECTION]
+                                 and o.key not in active_primary_keys)
     up_secondary = _dedupe_next(o for o in occs if not is_primary(o.key)
-                                 and o.key not in active_secondary_keys)[:UPCOMING_PER_SECTION]
+                                 and o.key not in active_secondary_keys)
 
     parts = [f"# {ui(entry, 'title')} — {ui(entry, 'server_label')} `{now:%H:%M:%S}`"]
 
