@@ -21,6 +21,8 @@ Commands (all slash commands):
     /roles clear target              - stop pinging for that target
     /roles list                      - show configured ping roles
     /roles message                   - post a permanent self-assign button message for the 4 roles
+    /roles hide                      - delete the opt-in role message and stop /setup reposting it
+    /roles show                      - repost it (same as /roles message) and clear the hidden flag
     /language set|show               - toggle the board/pings between English and Russian
     /names set key language text     - set this server's own name for an event/boss in a language
     /names clear key language        - reset an event/boss's name back to default
@@ -38,16 +40,22 @@ Commands (all slash commands):
     /pings disable target            - silence a target's ping alerts without unbinding its role
     /pings enable target             - re-enable them
     /pings list                      - show the template and which targets are silenced
+    /board time-format kind text     - customize board wording ({time} placeholder; kind=live|upcoming)
+    /board time-reset kind           - reset one (or both) back to the language default
+    /board time-list                 - show the current live/upcoming templates
 
 Russian ping alerts already use a fully-localized template ("{role} {event}
 через {time}!") by default — the event name comes from /names set as before,
 only the surrounding "in X minutes"-style wording was English-only until now.
+The board's own "6m left"/"in 1h" wording is customizable the same way via
+/board time-format, also localized to Russian by default.
 
 Permission levels are per-guild and configurable — see /permissions above.
-Defaults: preset buttons = everyone; everything else (/setup, /timer,
-/roles, /language set, /names set|clear, /clear) = Manage Messages.
-/permissions itself always requires Manage Server, hardcoded, so it can't
-be used to lower its own bar.
+Defaults: preset buttons = everyone; /setup, /language set, and /board
+(incl. /roles hide|show) = Manage Server (whole-server presentation);
+everything else (/timer, /roles set|clear|message, /names set|clear,
+/clear, /buttons, /pings) = Manage Messages. /permissions itself always
+requires Manage Server, hardcoded, so it can't be used to lower its own bar.
 """
 
 import os
@@ -259,6 +267,11 @@ def gd(guild_id):
     entry.setdefault("hidden_buttons", [])   # list of button custom_ids not shown on this guild's messages
     entry.setdefault("ping_template", None)  # None = use the language's default template
     entry.setdefault("disabled_pings", [])   # list of ping-target keys with alerts suppressed
+    entry.setdefault("live_time_format", None)      # None = language default ("{time} left")
+    entry.setdefault("upcoming_time_format", None)  # None = language default ("in {time}")
+    entry.setdefault("role_channel_id", None)
+    entry.setdefault("role_message_id", None)
+    entry.setdefault("role_hidden", False)   # /roles hide — skip auto-posting the opt-in message
     return entry
 
 
@@ -276,6 +289,7 @@ PERMISSION_TARGETS = [
     ("clear_cmd", "/clear"),
     ("buttons", "/buttons hide, show"),
     ("pings", "/pings message, disable, enable"),
+    ("board", "/board time-format, time-reset; /roles hide, show"),
 ]
 PERMISSION_TARGET_DESCRIPTIONS = {
     "preset_timers": "The buttons under the board that start a preset Guild Boss "
@@ -300,17 +314,26 @@ PERMISSION_TARGET_DESCRIPTIONS = {
     "pings": "/pings message set — customize the outgoing ping text (placeholders "
              "{role} {event} {time}). /pings disable/enable — silence a specific "
              "target's alerts without unbinding its role.",
+    "board": "/board time-format — customize the board's own \"6m left\"/\"in 1h\" "
+             "wording for Live Now and Upcoming rows. /roles hide/show — remove or "
+             "repost the opt-in role message entirely. Both change how the bot "
+             "presents to the whole server, so this defaults stricter than most.",
 }
+# setup/language/board default stricter (Manage Server) than the rest — each
+# changes how the bot presents to the WHOLE server (board layout, entire
+# language, wording format, or the opt-in message's presence), not just a
+# single binding/name/timer, so it isn't just a Manage Messages-level action.
 DEFAULT_PERMISSION_LEVELS = {
     "preset_timers": "everyone",
     "timer": "manage_messages",
-    "setup": "manage_messages",
+    "setup": "manage_server",
     "roles": "manage_messages",
-    "language": "manage_messages",
+    "language": "manage_server",
     "names": "manage_messages",
     "clear_cmd": "manage_messages",
     "buttons": "manage_messages",
     "pings": "manage_messages",
+    "board": "manage_server",
 }
 PERMISSION_LEVEL_LABELS = {"everyone": "Everyone", "send_messages": "Send Messages",
                             "manage_messages": "Manage Messages", "manage_server": "Manage Server"}
@@ -443,6 +466,8 @@ UI = {
                          "Prairie/Invasion).\n\n"
                          "*An admin binds each button to a role with `/roles set`.*"),
         "ping_template": "{role} **{event}** in {time}!",
+        "live_time_format": "{time} left",
+        "upcoming_time_format": "in {time}",
     },
     "ru": {
         "title": "🗓️ Таймеры ArcheAge",
@@ -459,6 +484,8 @@ UI = {
                          "для Prairie/Invasion).\n\n"
                          "*Админ привязывает роль к кнопке командой `/roles set`.*"),
         "ping_template": "{role} **{event}** через {time}!",
+        "live_time_format": "осталось {time}",
+        "upcoming_time_format": "через {time}",
     },
 }
 
@@ -499,6 +526,17 @@ EMBED_COLOR = 0xC8A96E
 UPCOMING_PER_SECTION = 6
 
 
+def _render_time_text(entry, kind, time_str):
+    """Guild's own wording (via /board time-format) for the trailing time text
+    on a board row — "live" -> default "{time} left", "upcoming" -> default
+    "in {time}". Falls back to the language default on a malformed override."""
+    template = entry.get(f"{kind}_time_format") or ui(entry, f"{kind}_time_format")
+    try:
+        return template.format(time=time_str)
+    except (KeyError, IndexError):
+        return UI[entry.get("language", "en")][f"{kind}_time_format"].format(time=time_str)
+
+
 def _live_line(entry, occ, now):
     rem = max(0, int((occ.end - now).total_seconds()))
     # Shows when it ENDS (local tag + MSK), matching Upcoming's local+MSK+count
@@ -506,7 +544,7 @@ def _live_line(entry, occ, now):
     epoch = int(occ.end.timestamp())
     msk_t = occ.end.strftime("%H:%M")
     return (f"{occ.icon} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
-            f"· MSK {msk_t} · {fmt_rem(rem)} left")
+            f"· MSK {msk_t} · {_render_time_text(entry, 'live', fmt_rem(rem))}")
 
 
 def _upcoming_line(entry, occ, now):
@@ -517,7 +555,7 @@ def _upcoming_line(entry, occ, now):
     epoch = int(occ.dt.timestamp())
     msk_t = occ.dt.strftime("%H:%M")
     return (f"{occ.icon} **{localized_occ_name(entry, occ)}** — <t:{epoch}:t> "
-            f"· MSK {msk_t} · in {fmt_rem(secs)}")
+            f"· MSK {msk_t} · {_render_time_text(entry, 'upcoming', fmt_rem(secs))}")
 
 
 def _dedupe_next(occs):
@@ -551,7 +589,8 @@ def build_embed(entry):
         else:
             epoch = int(t["end"])
             msk_t = datetime.fromtimestamp(t["end"], tz=MOSCOW).strftime("%H:%M")
-            custom_lines.append(f"⏱ **{name}** — <t:{epoch}:t> · MSK {msk_t} · {fmt_rem(rem)} left")
+            custom_lines.append(f"⏱ **{name}** — <t:{epoch}:t> · MSK {msk_t} · "
+                                 f"{_render_time_text(entry, 'live', fmt_rem(rem))}")
 
     active = active_occurrences(now)
     active_primary   = [o for o in active if o.key in PRIMARY_KEYS]
@@ -696,6 +735,17 @@ def build_role_embed(entry):
     board instead of looking like a loose announcement."""
     return discord.Embed(title=ui(entry, "opt_in_title"), description=ui(entry, "opt_in_desc"),
                           color=EMBED_COLOR)
+
+
+async def _post_role_message(channel, entry):
+    """Posts the opt-in role embed and records where it landed so /roles hide
+    can find and delete it later. Shared by /setup, /roles message, /roles show."""
+    msg = await channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
+    entry["role_channel_id"] = channel.id
+    entry["role_message_id"] = msg.id
+    entry["role_hidden"] = False
+    save_data(guild_data)
+    return msg
 
 
 ROLE_BUTTON_KEYS = {"role_jmg": "jmg", "role_rangora": "rangora", "role_morpheus": "morpheus",
@@ -1069,7 +1119,9 @@ async def before_refresh():
 async def setup_cmd(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
     # Posted first so it lands above the board (Discord orders by send time).
-    await interaction.channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
+    # Skipped entirely if an admin hid it via /roles hide.
+    if not entry["role_hidden"]:
+        await _post_role_message(interaction.channel, entry)
     embed = build_embed(entry)
     msg = await interaction.channel.send(embed=embed, view=PresetView(entry))
     entry["channel_id"] = interaction.channel_id
@@ -1195,8 +1247,37 @@ async def roles_list(interaction: discord.Interaction):
 @require_permission("roles")
 async def roles_message(interaction: discord.Interaction):
     entry = gd(interaction.guild_id)
-    await interaction.channel.send(embed=build_role_embed(entry), view=RoleButtonView(entry))
+    await _post_role_message(interaction.channel, entry)
     await _reply_dismiss(interaction, "Posted.")
+
+
+@roles_group.command(name="hide", description="Remove the opt-in role message and stop /setup reposting it")
+@require_permission("board")
+async def roles_hide(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    entry["role_hidden"] = True
+    deleted = False
+    if entry["role_channel_id"] and entry["role_message_id"]:
+        try:
+            ch = client.get_channel(entry["role_channel_id"]) or await client.fetch_channel(entry["role_channel_id"])
+            msg = await ch.fetch_message(entry["role_message_id"])
+            await msg.delete()
+            deleted = True
+        except Exception:
+            pass
+    entry["role_channel_id"] = None
+    entry["role_message_id"] = None
+    save_data(guild_data)
+    await _reply_dismiss(interaction, "Role message hidden" + (" and deleted." if deleted else
+                          " (already gone). ") + " /setup won't repost it until /roles show.")
+
+
+@roles_group.command(name="show", description="Repost the opt-in role message (same as /roles message)")
+@require_permission("board")
+async def roles_show(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    await _post_role_message(interaction.channel, entry)
+    await _reply_dismiss(interaction, "Role message shown again.")
 
 
 client.tree.add_command(roles_group)
@@ -1456,6 +1537,54 @@ async def pings_list(interaction: discord.Interaction):
 
 
 client.tree.add_command(pings_group)
+
+
+board_group = app_commands.Group(name="board", description="Customize the board's own time-remaining wording (whole-server presentation, Manage Server)")
+BOARD_KIND_CHOICES = [app_commands.Choice(name="Live now rows", value="live"),
+                      app_commands.Choice(name="Upcoming rows", value="upcoming"),
+                      app_commands.Choice(name="Both", value="both")]
+
+
+@board_group.command(name="time-format", description="Set the wording for Live Now or Upcoming rows on this server")
+@app_commands.describe(kind="Which rows", text="Use {time} as the placeholder, e.g. '{time} remaining' or '⏳ {time}'")
+@app_commands.choices(kind=[c for c in BOARD_KIND_CHOICES if c.value != "both"])
+@require_permission("board")
+async def board_time_format(interaction: discord.Interaction, kind: app_commands.Choice[str], text: str):
+    try:
+        text.format(time="5m")
+    except (KeyError, IndexError) as e:
+        await _reply_dismiss(interaction, f"That template has a bad placeholder ({e}) — only "
+                              "{time} is valid.")
+        return
+    entry = gd(interaction.guild_id)
+    entry[f"{kind.value}_time_format"] = text.strip()[:100]
+    save_data(guild_data)
+    preview = _render_time_text(entry, kind.value, "6m")
+    await _reply_dismiss(interaction, f"**{kind.name}** now show: \"{preview}\". Updates within 5s.")
+
+
+@board_group.command(name="time-reset", description="Reset board wording back to the language default")
+@app_commands.describe(kind="Which rows")
+@app_commands.choices(kind=BOARD_KIND_CHOICES)
+@require_permission("board")
+async def board_time_reset(interaction: discord.Interaction, kind: app_commands.Choice[str]):
+    entry = gd(interaction.guild_id)
+    keys = ["live", "upcoming"] if kind.value == "both" else [kind.value]
+    for k in keys:
+        entry[f"{k}_time_format"] = None
+    save_data(guild_data)
+    await _reply_dismiss(interaction, f"**{kind.name}** reset to the language default.")
+
+
+@board_group.command(name="time-list", description="Show the current Live Now / Upcoming wording")
+async def board_time_list(interaction: discord.Interaction):
+    entry = gd(interaction.guild_id)
+    live = entry["live_time_format"] or f"{ui(entry, 'live_time_format')} (default)"
+    upcoming = entry["upcoming_time_format"] or f"{ui(entry, 'upcoming_time_format')} (default)"
+    await _reply_dismiss(interaction, f"Live now: {live}\nUpcoming: {upcoming}")
+
+
+client.tree.add_command(board_group)
 
 
 @client.tree.command(name="events", description="One-off snapshot of live/upcoming events")
