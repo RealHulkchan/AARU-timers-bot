@@ -1091,6 +1091,10 @@ class TimersBot(discord.Client):
 # installs, not what's still cached/running in an environment that hasn't
 # rebuilt from scratch since an older pin.
 print(f"[BOOT] discord.py {discord.__version__}")
+# Confirms the env var was actually picked up without ever printing the IDs
+# themselves — logs can end up shared/pasted, and the whole point of
+# BOT_OWNER_IDS is to not have those values floating around anywhere public.
+print(f"[BOOT] BOT_OWNER_IDS configured: {len(BOT_OWNER_IDS)}")
 client = TimersBot()
 
 
