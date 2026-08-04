@@ -262,22 +262,58 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(DATA_DIR, "bot_timers.json")
 
 
+DATA_BACKUP_PATH = DATA_PATH + ".bak"
+
+
 def load_data():
     if os.path.exists(DATA_PATH):
         try:
             with open(DATA_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            # A corrupt/truncated primary file (e.g. the process was killed mid-write
+            # before the atomic-save fix below existed) used to silently return {} here
+            # — wiping every guild's timers/bindings/config with no warning at all.
+            # Fall back to the last known-good backup instead of giving up immediately.
+            print(f"[LOAD] {DATA_PATH} failed to parse ({e!r}), trying backup", flush=True)
+            if os.path.exists(DATA_BACKUP_PATH):
+                try:
+                    with open(DATA_BACKUP_PATH, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    print(f"[LOAD] recovered from {DATA_BACKUP_PATH}", flush=True)
+                    return data
+                except Exception as e2:
+                    print(f"[LOAD] backup also failed to parse ({e2!r}) — starting empty", flush=True)
+            else:
+                print("[LOAD] no backup available — starting empty", flush=True)
     return {}
 
 
 def save_data(data):
+    # Atomic write: json.dump straight into DATA_PATH truncates it immediately, so a
+    # crash mid-write (a kill, an OOM, a forced restart — all things that have actually
+    # happened during this bot's lifetime) leaves a half-written, unparseable file and
+    # load_data() would previously reset every guild's data to empty on the next boot
+    # with no warning. Writing to a temp file and os.replace()-ing it into place instead
+    # means the swap is atomic — the on-disk file is always either the old complete
+    # version or the new complete version, never a partial one. The previous good file
+    # is kept as a .bak for load_data() to fall back to if this file ever does end up
+    # corrupted some other way (e.g. disk-level failure, not just an interrupted write).
     try:
-        with open(DATA_PATH, "w", encoding="utf-8") as f:
+        if os.path.exists(DATA_PATH):
+            try:
+                with open(DATA_PATH, "rb") as src, open(DATA_BACKUP_PATH, "wb") as dst:
+                    dst.write(src.read())
+            except Exception:
+                pass
+        tmp_path = DATA_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, DATA_PATH)
     except Exception as e:
-        print(f"[SAVE] failed: {e}")
+        print(f"[SAVE] failed: {e}", flush=True)
 
 
 guild_data = load_data()   # {guild_id_str: {"channel_id", "message_id",
