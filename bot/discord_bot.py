@@ -1003,10 +1003,19 @@ class TimersBot(discord.Client):
         # Without a cap, discord.py blocks a request indefinitely through
         # however many 429 retries it takes (this is what the repeating
         # "We are being rate limited... Retrying in Xs" warnings were —
-        # the board-edit call sitting in a growing backoff loop). Capping it
-        # means a congested board edit gives up quickly instead of occupying
-        # request capacity that ping_loop's alerts need more urgently.
-        super().__init__(intents=intents, max_ratelimit_timeout=8)
+        # the board-edit call sitting in a growing backoff loop).
+        # discord.py only raises RateLimited (which refresh_loop's own
+        # backoff logic catches) when a single retry_after EXCEEDS this cap
+        # — otherwise it silently retries internally (up to 5 times, sleeping
+        # the full retry_after each time) without ever returning control.
+        # Observed sustained 429s on the board-edit route were coming back
+        # with retry_after ~5.2-5.5s, comfortably under the old 8s cap, so
+        # every single attempt was getting swallowed by discord.py's own
+        # internal retry loop — burning ~25s+ per call — instead of ever
+        # reaching refresh_loop's except-RateLimited backoff at all. 3s is
+        # low enough that any real congestion (which so far has only ever
+        # been observed above 5s) trips the cap immediately.
+        super().__init__(intents=intents, max_ratelimit_timeout=3)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
