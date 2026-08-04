@@ -1240,6 +1240,17 @@ async def ping_loop_error(error: BaseException):
     ping_loop.start()
 
 
+# Per-guild backoff state for the board-edit route, in-memory only (not
+# persisted — a restart is fine starting fresh). If a guild's edit keeps
+# getting RateLimited tick after tick, retrying again every single 5s may
+# itself be what keeps a Discord-side penalty window renewed instead of
+# letting it lapse; this makes consecutive failures back off exponentially
+# (capped at 5 minutes between attempts) instead of poking the same route
+# forever at a fixed 5s cadence.
+_board_backoff = {}   # {guild_id: {"until": epoch_ts, "failures": int}}
+_BOARD_BACKOFF_CAP = 300
+
+
 @tasks.loop(seconds=5)
 async def refresh_loop():
     expired_any = False
@@ -1281,6 +1292,10 @@ async def refresh_loop():
                 continue
             seen_messages.add(msg_key)
 
+            backoff = _board_backoff.get(guild_id)
+            if backoff and now_ts < backoff["until"]:
+                continue
+
             embed = build_embed(entry)
             try:
                 if entry.get("message_id"):
@@ -1295,17 +1310,26 @@ async def refresh_loop():
                     msg = await channel.send(embed=embed, view=PresetView(entry))
                     entry["message_id"] = msg.id
                     save_data(guild_data)
+                _board_backoff.pop(guild_id, None)
             except discord.NotFound:
                 # Someone deleted the board message by hand — stop chasing it instead
                 # of silently respawning a new one every 5s; /setup rebinds cleanly.
                 _unbind(guild_id, entry, "board message was deleted")
+                _board_backoff.pop(guild_id, None)
             except discord.Forbidden:
                 _unbind(guild_id, entry, "lost permission to post in the board channel")
+                _board_backoff.pop(guild_id, None)
             except discord.RateLimited:
                 # max_ratelimit_timeout makes this fire instead of blocking through a
-                # long retry — just skip this tick, the next one is only 5s away, and
-                # skipping fast keeps request capacity free for ping_loop's alerts.
-                print(f"[TICK] guild {guild_id}: rate limited, skipping this tick")
+                # long retry. A single miss just costs this one 5s tick — but if it
+                # keeps happening, retrying again every 5s regardless may itself be
+                # what's renewing a Discord-side penalty window instead of letting it
+                # lapse, so back off exponentially (capped) on repeat failures.
+                failures = (backoff["failures"] + 1) if backoff else 1
+                wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
+                _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
+                print(f"[TICK] guild {guild_id}: rate limited ({failures} in a row), "
+                      f"backing off {wait}s before retrying")
         except Exception as e:
             print(f"[TICK] guild {guild_id} failed: {e!r}")
     if expired_any:
