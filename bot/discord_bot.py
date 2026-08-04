@@ -1198,7 +1198,7 @@ async def _send_ping(channel, text, log_label):
 
 
 def _unbind(guild_id, entry, reason):
-    print(f"[TICK] guild {guild_id}: {reason} — unbinding (run /setup again to re-enable)")
+    print(f"[TICK] guild {guild_id}: {reason} — unbinding (run /setup again to re-enable)", flush=True)
     entry["channel_id"] = None
     entry["message_id"] = None
     save_data(guild_data)
@@ -1342,7 +1342,20 @@ async def refresh_loop():
                 # observe), this hard-caps how long a single tick will ever wait on
                 # it — if it doesn't finish in _BOARD_EDIT_TIMEOUT seconds, treat it
                 # as a failure and move on, no matter what's actually holding it up.
-                await asyncio.wait_for(_do_edit(), timeout=_BOARD_EDIT_TIMEOUT)
+                # TEMPORARY: unconditional before/after prints with flush=True,
+                # since several rounds of exception-based handling silently never
+                # fired in production despite working in an isolated local test —
+                # this brackets the call with ground truth instead of another guess.
+                print(f"[TICK-DEBUG] guild {guild_id}: starting board edit attempt "
+                      f"for message {entry.get('message_id')}", flush=True)
+                try:
+                    await asyncio.wait_for(_do_edit(), timeout=_BOARD_EDIT_TIMEOUT)
+                except BaseException as debug_e:
+                    print(f"[TICK-DEBUG] guild {guild_id}: attempt raised "
+                          f"{type(debug_e).__name__}: {debug_e!r}", flush=True)
+                    raise
+                else:
+                    print(f"[TICK-DEBUG] guild {guild_id}: attempt succeeded", flush=True)
                 _board_backoff.pop(guild_id, None)
             except discord.NotFound:
                 # Someone deleted the board message by hand — stop chasing it instead
@@ -1364,9 +1377,9 @@ async def refresh_loop():
                     wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
                     _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
                     print(f"[TICK] guild {guild_id}: board edit failed/timed out "
-                          f"({failures} in a row, {e!r}), backing off {wait}s before retrying")
+                          f"({failures} in a row, {e!r}), backing off {wait}s before retrying", flush=True)
         except Exception as e:
-            print(f"[TICK] guild {guild_id} failed: {e!r}")
+            print(f"[TICK] guild {guild_id} failed: {e!r}", flush=True)
     if expired_any:
         save_data(guild_data)
 
