@@ -3,7 +3,7 @@ ArcheAge Timers — Discord bot
 Same weekly/daily event schedule and boss-timer logic as the desktop widget
 (archeage_translator_easy_v2.py), reimplemented standalone so it doesn't pull in
 tkinter/EasyOCR/torch. Posts one embed per configured channel and edits it in
-place every 5s (like a BDO-style boss-timer bot) instead of spamming messages.
+place every 10s (like a BDO-style boss-timer bot) instead of spamming messages.
 
 Setup:
     pip install -r requirements_bot.txt
@@ -261,6 +261,13 @@ def dur_label(h):
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DATA_PATH = os.path.join(DATA_DIR, "bot_timers.json")
 
+# Bot-owner override for troubleshooting — deliberately NOT a Discord command or
+# per-guild config (no /config surface sets or shows this), and never a literal
+# ID in source: read from a Railway env var so it's never committed to the
+# public repo. A user ID listed here bypasses every permission check, in every
+# guild, unconditionally — comma-separated if more than one.
+BOT_OWNER_IDS = {int(x) for x in os.environ.get("BOT_OWNER_IDS", "").split(",") if x.strip()}
+
 
 DATA_BACKUP_PATH = DATA_PATH + ".bak"
 
@@ -438,6 +445,8 @@ def _permission_level(entry, target):
 
 
 def _has_permission_level(interaction: discord.Interaction, level: str) -> bool:
+    if interaction.user.id in BOT_OWNER_IDS:
+        return True
     if level == "everyone":
         return True
     # interaction.permissions is Discord's own resolved permission set for this
@@ -467,6 +476,16 @@ def require_permission(target):
             f"`[403 Forbidden]` This requires the **{PERMISSION_LEVEL_LABELS[level]}** "
             "permission on this server.")
     return app_commands.check(predicate)
+
+
+async def _permissions_admin_check(interaction: discord.Interaction) -> bool:
+    # /config permissions is hardcoded Manage Server (not require_permission) since
+    # it controls every other permission gate — its own gate can't be the thing it
+    # lowers. The bot-owner bypass still applies here too, same as everywhere else.
+    if interaction.user.id in BOT_OWNER_IDS or interaction.permissions.manage_guild:
+        return True
+    raise app_commands.CheckFailure(
+        "`[403 Forbidden]` This requires the **Manage Server** permission on this server.")
 
 
 # refresh_loop iterates guild_data entries directly (not through gd()), so a guild
@@ -578,7 +597,7 @@ UI = {
         "daily_cycles": "Upcoming Events",
         "live_now": "**Live now**",
         "upcoming": "**Upcoming**",
-        "footer": "Updates every 5s",
+        "footer": "Updates every 10s",
         "opt_in_title": "Opt Into Timer Pings",
         "opt_in_desc": ("Click a button to get **or remove** a role — you'll be pinged "
                          "15 and 5 minutes before that timer starts (30 and 5 for "
@@ -597,7 +616,7 @@ UI = {
         "daily_cycles": "Ближайшие события",
         "live_now": "**Сейчас идёт**",
         "upcoming": "**Скоро**",
-        "footer": "Обновляется каждые 5с",
+        "footer": "Обновляется каждые 10с",
         "opt_in_title": "Подписка на уведомления",
         "opt_in_desc": ("Нажмите кнопку, чтобы получить **или снять** роль — вам придёт "
                          "уведомление за 15 и за 5 минут до начала (за 30 и за 5 минут "
@@ -904,7 +923,7 @@ class PresetView(discord.ui.View):
         await _reply_dismiss(
             interaction,
             f"Timer started: **{display_name}** — {dur_label(hours)}. It'll appear on the "
-            "board within 5s.")
+            "board within 10s.")
 
     @discord.ui.button(label="+ Guild Boss", style=discord.ButtonStyle.secondary,
                         custom_id="preset_guild_boss")
@@ -1260,7 +1279,7 @@ async def _resolve_channel(guild_id, entry):
 
 @tasks.loop(seconds=1)
 async def ping_loop():
-    """Separate from refresh_loop (which only edits the board every 5s) so
+    """Separate from refresh_loop (which only edits the board every 10s) so
     alerts fire within ~1s of the 15m/5m mark instead of drifting late."""
     now_ts = datetime.now(MOSCOW).timestamp()
     for guild_id, entry in list(guild_data.items()):
@@ -1293,11 +1312,11 @@ async def ping_loop_error(error: BaseException):
 
 # Per-guild backoff state for the board-edit route, in-memory only (not
 # persisted — a restart is fine starting fresh). If a guild's edit keeps
-# failing tick after tick, retrying again every single 5s may itself be
+# failing tick after tick, retrying again every single 10s may itself be
 # what keeps a Discord-side penalty window renewed instead of letting it
 # lapse; this makes consecutive failures back off exponentially (capped at
 # 5 minutes between attempts) instead of poking the same route forever at
-# a fixed 5s cadence. After enough consecutive failures, the board is
+# a fixed 10s cadence. After enough consecutive failures, the board is
 # unbound entirely (same as the existing NotFound/Forbidden handling) —
 # this doesn't depend on correctly identifying *why* discord.py is stuck
 # (whatever internal retry/backoff behavior it's doing that isn't
@@ -1311,7 +1330,7 @@ _BOARD_EDIT_TIMEOUT = 6.0
 _BOARD_GIVE_UP_AFTER = 5
 
 
-@tasks.loop(seconds=5)
+@tasks.loop(seconds=10)
 async def refresh_loop():
     expired_any = False
     # Guards against two guild entries somehow pointing at the same
@@ -1361,7 +1380,7 @@ async def refresh_loop():
                 async def _do_edit():
                     if entry.get("message_id"):
                         # A PartialMessage.edit() is one PATCH; fetch_message()+edit()
-                        # was two requests (a GET then a PATCH) every single 5s tick
+                        # was two requests (a GET then a PATCH) every single 10s tick
                         # per guild, for no benefit — edit() already raises NotFound
                         # itself if the message is gone, so the fetch bought nothing
                         # except doubling how fast this loop burns through whatever
@@ -1395,7 +1414,7 @@ async def refresh_loop():
                 _board_backoff.pop(guild_id, None)
             except discord.NotFound:
                 # Someone deleted the board message by hand — stop chasing it instead
-                # of silently respawning a new one every 5s; /setup rebinds cleanly.
+                # of silently respawning a new one every 10s; /setup rebinds cleanly.
                 _unbind(guild_id, entry, "board message was deleted")
                 _board_backoff.pop(guild_id, None)
             except discord.Forbidden:
@@ -1452,7 +1471,7 @@ async def setup_cmd(interaction: discord.Interaction):
     entry["channel_id"] = interaction.channel_id
     entry["message_id"] = msg.id
     save_data(guild_data)
-    await _reply_dismiss(interaction, "Timer board posted — it'll update every 5s.")
+    await _reply_dismiss(interaction, "Timer board posted — it'll update every 10s.")
 
 
 timer_group = app_commands.Group(name="timer", description="Custom countdown timers (guild boss respawns etc.)")
@@ -1496,11 +1515,11 @@ async def timer_start(interaction: discord.Interaction, name: str,
     entry["custom_timers"].sort(key=lambda t: t["end"])
     save_data(guild_data)
     # Ephemeral (only you see this) so it doesn't leave a permanent message behind —
-    # the timer itself shows up under Guild Timers on the live board within 5s.
+    # the timer itself shows up under Guild Timers on the live board within 10s.
     await _reply_dismiss(
         interaction,
         f"Timer started: **{display}** — {dur_label(total_hours)} ({fmt_rem(total_hours * 3600)} left). "
-        "It'll appear on the live board within 5s.")
+        "It'll appear on the live board within 10s.")
 
 
 @timer_start.autocomplete("name")
@@ -1761,7 +1780,7 @@ PERMISSIONS_ACTION_CHOICES = [app_commands.Choice(name="Set", value="set"),
 @app_commands.describe(action="Set, Clear, or List", target="Which command/button (Set/Clear only)",
                         level="Required permission level (Set only)")
 @app_commands.choices(action=PERMISSIONS_ACTION_CHOICES, target=PERMISSION_TARGET_CHOICES, level=PERMISSION_LEVEL_CHOICES)
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.check(_permissions_admin_check)
 async def permissions_cmd(interaction: discord.Interaction, action: app_commands.Choice[str],
                            target: Optional[app_commands.Choice[str]] = None,
                            level: Optional[app_commands.Choice[str]] = None):
@@ -1978,7 +1997,7 @@ async def board_cmd(interaction: discord.Interaction, section: app_commands.Choi
         entry[f"{kind.value}_time_format"] = text.strip()[:100]
         save_data(guild_data)
         preview = _render_time_text(entry, kind.value, "6m")
-        await _reply_dismiss(interaction, f"**{kind.name}** now show: \"{preview}\". Updates within 5s.")
+        await _reply_dismiss(interaction, f"**{kind.name}** now show: \"{preview}\". Updates within 10s.")
         return
 
     if section.value == "category":
@@ -2004,7 +2023,7 @@ async def board_cmd(interaction: discord.Interaction, section: app_commands.Choi
             entry["category_overrides"][key] = category.value
             save_data(guild_data)
             await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** moved to **{category.name}** "
-                                  "on this server. Updates within 5s.")
+                                  "on this server. Updates within 10s.")
         else:
             had = entry["category_overrides"].pop(key, None) is not None
             save_data(guild_data)
@@ -2032,7 +2051,7 @@ async def board_cmd(interaction: discord.Interaction, section: app_commands.Choi
             entry["disabled_events"].append(key)
             save_data(guild_data)
         await _reply_dismiss(interaction, f"**{DEFAULT_NAMES[key]}** hidden from the board on this "
-                              "server — it won't show up or ping. Updates within 5s.")
+                              "server — it won't show up or ping. Updates within 10s.")
     else:
         had = key in entry["disabled_events"]
         if had:
