@@ -1257,13 +1257,22 @@ async def ping_loop_error(error: BaseException):
 
 # Per-guild backoff state for the board-edit route, in-memory only (not
 # persisted — a restart is fine starting fresh). If a guild's edit keeps
-# getting RateLimited tick after tick, retrying again every single 5s may
-# itself be what keeps a Discord-side penalty window renewed instead of
-# letting it lapse; this makes consecutive failures back off exponentially
-# (capped at 5 minutes between attempts) instead of poking the same route
-# forever at a fixed 5s cadence.
+# failing tick after tick, retrying again every single 5s may itself be
+# what keeps a Discord-side penalty window renewed instead of letting it
+# lapse; this makes consecutive failures back off exponentially (capped at
+# 5 minutes between attempts) instead of poking the same route forever at
+# a fixed 5s cadence. After enough consecutive failures, the board is
+# unbound entirely (same as the existing NotFound/Forbidden handling) —
+# this doesn't depend on correctly identifying *why* discord.py is stuck
+# (whatever internal retry/backoff behavior it's doing that isn't
+# surfacing as a catchable exception in any bounded time), because the
+# whole attempt is wrapped in asyncio.wait_for(): if it doesn't return
+# within _BOARD_EDIT_TIMEOUT seconds for any reason at all, it's treated
+# as a failure and cancelled outright.
 _board_backoff = {}   # {guild_id: {"until": epoch_ts, "failures": int}}
 _BOARD_BACKOFF_CAP = 300
+_BOARD_EDIT_TIMEOUT = 6.0
+_BOARD_GIVE_UP_AFTER = 5
 
 
 @tasks.loop(seconds=5)
@@ -1313,18 +1322,27 @@ async def refresh_loop():
 
             embed = build_embed(entry)
             try:
-                if entry.get("message_id"):
-                    # A PartialMessage.edit() is one PATCH; fetch_message()+edit()
-                    # was two requests (a GET then a PATCH) every single 5s tick
-                    # per guild, for no benefit — edit() already raises NotFound
-                    # itself if the message is gone, so the fetch bought nothing
-                    # except doubling how fast this loop burns through whatever
-                    # rate-limit budget the channel has.
-                    await channel.get_partial_message(entry["message_id"]).edit(embed=embed)
-                else:
-                    msg = await channel.send(embed=embed, view=PresetView(entry))
-                    entry["message_id"] = msg.id
-                    save_data(guild_data)
+                async def _do_edit():
+                    if entry.get("message_id"):
+                        # A PartialMessage.edit() is one PATCH; fetch_message()+edit()
+                        # was two requests (a GET then a PATCH) every single 5s tick
+                        # per guild, for no benefit — edit() already raises NotFound
+                        # itself if the message is gone, so the fetch bought nothing
+                        # except doubling how fast this loop burns through whatever
+                        # rate-limit budget the channel has.
+                        await channel.get_partial_message(entry["message_id"]).edit(embed=embed)
+                    else:
+                        msg = await channel.send(embed=embed, view=PresetView(entry))
+                        entry["message_id"] = msg.id
+                        save_data(guild_data)
+
+                # Whatever's actually happening inside discord.py under sustained
+                # 429s (its own internal retry/backoff handling isn't surfacing as
+                # a catchable exception within any bounded time we've been able to
+                # observe), this hard-caps how long a single tick will ever wait on
+                # it — if it doesn't finish in _BOARD_EDIT_TIMEOUT seconds, treat it
+                # as a failure and move on, no matter what's actually holding it up.
+                await asyncio.wait_for(_do_edit(), timeout=_BOARD_EDIT_TIMEOUT)
                 _board_backoff.pop(guild_id, None)
             except discord.NotFound:
                 # Someone deleted the board message by hand — stop chasing it instead
@@ -1334,34 +1352,19 @@ async def refresh_loop():
             except discord.Forbidden:
                 _unbind(guild_id, entry, "lost permission to post in the board channel")
                 _board_backoff.pop(guild_id, None)
-            except discord.RateLimited:
-                # discord.py clamps max_ratelimit_timeout to a hard minimum of 30s
-                # internally (max(30.0, value)) regardless of what's passed in, so in
-                # practice this only fires for a retry_after over 30s — everything
-                # we've observed on this route has been under 6s, meaning this branch
-                # essentially never triggers and discord.py's own internal retry loop
-                # (see the HTTPException branch below) is what actually runs. Kept
-                # anyway for the rare case a real retry_after does exceed 30s.
-                failures = (backoff["failures"] + 1) if backoff else 1
-                wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
-                _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
-                print(f"[TICK] guild {guild_id}: rate limited ({failures} in a row), "
-                      f"backing off {wait}s before retrying")
-            except discord.HTTPException as e:
-                if e.status != 429:
+            except (asyncio.TimeoutError, discord.RateLimited, discord.HTTPException) as e:
+                if isinstance(e, discord.HTTPException) and e.status != 429:
                     raise
-                # This is the branch that actually fires under sustained 429s: since
-                # max_ratelimit_timeout can't be lowered below discord.py's 30s floor
-                # (see above), every attempt burns through the library's own internal
-                # 5-try retry loop (sleeping the full retry_after each time, ~25s+
-                # total) before finally giving up and raising this instead of
-                # RateLimited. Same backoff either way — the point is to stop
-                # re-attempting (and re-eating that ~25s+ cost) every single 5s tick.
                 failures = (backoff["failures"] + 1) if backoff else 1
-                wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
-                _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
-                print(f"[TICK] guild {guild_id}: rate limited ({failures} in a row), "
-                      f"backing off {wait}s before retrying")
+                if failures >= _BOARD_GIVE_UP_AFTER:
+                    _unbind(guild_id, entry, f"board edit failed/timed out {failures} times in a "
+                            "row — giving up on this message so the loop stops hammering it")
+                    _board_backoff.pop(guild_id, None)
+                else:
+                    wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
+                    _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
+                    print(f"[TICK] guild {guild_id}: board edit failed/timed out "
+                          f"({failures} in a row, {e!r}), backing off {wait}s before retrying")
         except Exception as e:
             print(f"[TICK] guild {guild_id} failed: {e!r}")
     if expired_any:
