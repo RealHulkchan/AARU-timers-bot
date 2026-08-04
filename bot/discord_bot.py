@@ -1335,11 +1335,28 @@ async def refresh_loop():
                 _unbind(guild_id, entry, "lost permission to post in the board channel")
                 _board_backoff.pop(guild_id, None)
             except discord.RateLimited:
-                # max_ratelimit_timeout makes this fire instead of blocking through a
-                # long retry. A single miss just costs this one 5s tick — but if it
-                # keeps happening, retrying again every 5s regardless may itself be
-                # what's renewing a Discord-side penalty window instead of letting it
-                # lapse, so back off exponentially (capped) on repeat failures.
+                # discord.py clamps max_ratelimit_timeout to a hard minimum of 30s
+                # internally (max(30.0, value)) regardless of what's passed in, so in
+                # practice this only fires for a retry_after over 30s — everything
+                # we've observed on this route has been under 6s, meaning this branch
+                # essentially never triggers and discord.py's own internal retry loop
+                # (see the HTTPException branch below) is what actually runs. Kept
+                # anyway for the rare case a real retry_after does exceed 30s.
+                failures = (backoff["failures"] + 1) if backoff else 1
+                wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
+                _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
+                print(f"[TICK] guild {guild_id}: rate limited ({failures} in a row), "
+                      f"backing off {wait}s before retrying")
+            except discord.HTTPException as e:
+                if e.status != 429:
+                    raise
+                # This is the branch that actually fires under sustained 429s: since
+                # max_ratelimit_timeout can't be lowered below discord.py's 30s floor
+                # (see above), every attempt burns through the library's own internal
+                # 5-try retry loop (sleeping the full retry_after each time, ~25s+
+                # total) before finally giving up and raising this instead of
+                # RateLimited. Same backoff either way — the point is to stop
+                # re-attempting (and re-eating that ~25s+ cost) every single 5s tick.
                 failures = (backoff["failures"] + 1) if backoff else 1
                 wait = min(_BOARD_BACKOFF_CAP, 5 * (2 ** failures))
                 _board_backoff[guild_id] = {"failures": failures, "until": now_ts + wait}
