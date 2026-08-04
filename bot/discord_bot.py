@@ -1030,6 +1030,12 @@ class TimersBot(discord.Client):
         ping_loop.start()
 
 
+# Printed unconditionally at import time (before login even starts) so the
+# actual running discord.py version is always visible in the runtime logs —
+# requirements.txt pins a version, but that only guarantees what a *build*
+# installs, not what's still cached/running in an environment that hasn't
+# rebuilt from scratch since an older pin.
+print(f"[BOOT] discord.py {discord.__version__}")
 client = TimersBot()
 
 
